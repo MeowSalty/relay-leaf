@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"relayleaf/internal/catalog"
 	"relayleaf/internal/config"
 )
 
@@ -69,7 +70,7 @@ func TestCLIArgumentsAndHelp(t *testing.T) {
 	}
 	for _, args := range [][]string{{"--help"}, {"help"}, {"local", "--help"}, {"config", "check", "--help"}} {
 		code, out, errs := command(t, args...)
-		if code != 0 || !strings.Contains(out, "尚未提供数据转发，数据监听端口返回 HTTP 503") || errs != "" {
+		if code != 0 || !strings.Contains(out, "POST /v1/responses") || errs != "" {
 			t.Fatalf("帮助命令返回 %d：%s %s", code, out, errs)
 		}
 	}
@@ -202,12 +203,42 @@ func (o *startupOutput) String() string {
 	return o.buf.String()
 }
 
-func TestListenerRejectsDataAndStops(t *testing.T) {
+func TestListenerForwardsDataAndStops(t *testing.T) {
+	const upstreamBody = `{"id":"resp_smoke","object":"response","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"成功"}]}]}`
+	var sent atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent.Add(1)
+		body, err := io.ReadAll(r.Body)
+		if err != nil || r.URL.Path != "/v1/responses" || r.Header.Get("Authorization") != "Bearer smoke-upstream" || !bytes.Contains(body, []byte(`"example-upstream-model"`)) {
+			t.Error("启动后的真实上游请求不符合配置")
+			w.WriteHeader(400)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, upstreamBody)
+	}))
+	t.Cleanup(upstream.Close)
+	data := strings.ReplaceAll(string(config.Example()), "https://api.example.com", upstream.URL)
+	data = strings.ReplaceAll(data, "127.0.0.1:17890", "127.0.0.1:17891")
+	snapshot, err := config.LoadFile(context.Background(), writeConfig(t, data), config.Options{ResolveSecrets: true, LookupEnv: func(name string) (string, bool) {
+		if name == "RELAYLEAF_CLIENT_KEY" {
+			return strings.Repeat("c", 32), true
+		}
+		if name == "RELAYLEAF_UPSTREAM_KEY" {
+			return "smoke-upstream", true
+		}
+		return "", false
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 直接构造监听地址为临时端口的快照，避免测试争用固定端口。
+	snapshot = catalog.NewSnapshot(catalog.Data{Gateway: "127.0.0.1:0", Providers: snapshot.Providers(), Targets: snapshot.Targets(), Routes: snapshot.Routes(), ClientKeys: snapshot.ClientKeys(), Verifications: []catalog.Verification{{ClientID: "local-client", Material: catalog.NewSecret(strings.Repeat("c", 32))}}, Limits: snapshot.Limits(), Execution: snapshot.Execution(), Health: snapshot.Health(), Observability: snapshot.Observability(), SecretsResolved: true})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	output := &startupOutput{started: make(chan string, 1)}
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, "127.0.0.1:0", output) }()
+	go func() { done <- serve(ctx, snapshot, output) }()
 	var address string
 	select {
 	case address = <-output.started:
@@ -218,17 +249,27 @@ func TestListenerRejectsDataAndStops(t *testing.T) {
 	}
 	client := &http.Client{Timeout: 2 * time.Second}
 	for _, path := range []string{"/v1/responses", "/unknown", "/readyz", "/admin/status"} {
-		resp, err := client.Post("http://"+address+path, "application/json", strings.NewReader(`{"model":"example-assistant"}`))
+		req, err := http.NewRequest(http.MethodPost, "http://"+address+path, strings.NewReader(`{"model":"example-assistant","input":"测试","stream":false}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+strings.Repeat("c", 32))
+		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
 		body, readErr := io.ReadAll(resp.Body)
 		closeErr := resp.Body.Close()
 		if readErr != nil || closeErr != nil {
-			t.Fatalf("读取占位响应失败：%v %v", readErr, closeErr)
+			t.Fatalf("读取数据响应失败：%v %v", readErr, closeErr)
 		}
-		if resp.StatusCode != http.StatusServiceUnavailable || !bytes.Contains(body, []byte("尚未提供数据转发")) {
-			t.Fatalf("路径 %s 意外可用：%d %s", path, resp.StatusCode, body)
+		if path == "/v1/responses" {
+			if resp.StatusCode != 200 || string(body) != upstreamBody {
+				t.Fatalf("真实数据转发失败：%d %s", resp.StatusCode, body)
+			}
+		} else if resp.StatusCode != 404 {
+			t.Fatalf("未知路径 %s 返回 %d", path, resp.StatusCode)
 		}
 	}
 	cancel()
@@ -240,8 +281,8 @@ func TestListenerRejectsDataAndStops(t *testing.T) {
 	case <-time.After(7 * time.Second):
 		t.Fatal("监听未停止")
 	}
-	if !strings.Contains(output.String(), `"ready":false`) || !strings.Contains(output.String(), `"config_revision":1`) {
-		t.Fatal("启动日志错误地报告就绪状态或缺少配置身份")
+	if !strings.Contains(output.String(), `"ready":true`) || !strings.Contains(output.String(), `"ready":false`) || !strings.Contains(output.String(), `"config_revision":1`) || sent.Load() != 1 {
+		t.Fatal("启动和停机就绪状态、配置身份或实际尝试次数不正确")
 	}
 	conn, err := net.DialTimeout("tcp", address, time.Second)
 	if err == nil {

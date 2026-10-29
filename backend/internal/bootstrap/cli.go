@@ -26,7 +26,7 @@ const usage = `RelayLeaf — 文件模式网关
   relayleaf version
 
 无参数启动时，使用本地文件模式并读取 ./relayleaf.yaml。
-尚未提供数据转发，数据监听端口返回 HTTP 503。
+数据入口支持 POST /v1/responses，使用 RelayLeaf ClientKey 的 Bearer 认证。
 `
 
 // Run 在成功或正常停止时返回 0，配置或启动失败时返回 1，
@@ -102,7 +102,7 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, "已创建文件模式配置。请设置 RELAYLEAF_CLIENT_KEY 和 RELAYLEAF_UPSTREAM_KEY，或将对应的 secret_ref 改为 secret 直接填写密钥，然后运行 config check --resolve-secrets。")
-	fmt.Fprintln(stdout, "上游 origin 和模型仅为示例。尚未提供数据转发，数据监听端口返回 HTTP 503。")
+	fmt.Fprintln(stdout, "上游 origin 和模型仅为示例。修改后可通过 POST /v1/responses 调用配置的公开模型。")
 	return 0
 }
 
@@ -167,7 +167,7 @@ func runLocal(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		}
 		return 1
 	}
-	if err := serve(ctx, snapshot.GatewayAddress(), stderr); err != nil {
+	if err := serve(ctx, snapshot, stderr); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
