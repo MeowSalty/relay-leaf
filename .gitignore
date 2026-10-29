@@ -1,0 +1,41 @@
+# 由 https://www.toptal.com/developers/gitignore/api/go 生成
+# 在线编辑：https://www.toptal.com/developers/gitignore?templates=go
+
+### Go ###
+# 如需使用允许列表模板，可参考以下社区模板：
+# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
+#
+# 程序和插件的二进制文件
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 由 `go test -c` 构建的测试二进制文件
+*.test
+
+# Go 覆盖率工具的输出，尤其是配合 LiteIDE 使用时
+*.out
+
+# 依赖目录（取消下一行注释即可忽略该目录）
+# vendor/
+
+# Go 工作区文件
+go.work
+
+# https://www.toptal.com/developers/gitignore/api/go 模板结束
+
+# AI 助手约定与本地开发说明
+/AGENTS.md
+
+# 本地设计与实施记录，不纳入发行内容
+/design
+
+# 本地配置与可重新生成的构建产物
+/relayleaf.yaml
+/backend/relayleaf.yaml
+/build/
+/backend/relayleaf
+/frontend/dist/
+/backend/internal/webui/dist/

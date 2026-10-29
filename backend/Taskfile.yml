@@ -1,0 +1,46 @@
+version: '3'
+
+silent: true
+
+tasks:
+  default:
+    cmds:
+      - task --list
+
+  run:
+    desc: 运行后端命令，参数放在 -- 后
+    cmds:
+      - go run ./cmd/relayleaf {{.CLI_ARGS}}
+
+  build:
+    desc: 构建本地后端程序到 build/
+    env:
+      CGO_ENABLED: '0'
+    cmds:
+      - go build -o ../build/ ./cmd/relayleaf
+
+  test:
+    desc: 执行后端测试，额外选项放在 -- 后
+    cmds:
+      - go test -count=1 ./... {{.CLI_ARGS}}
+
+  format:
+    desc: 使用 gofmt 格式化 Go 源码
+    cmds:
+      - gofmt -l -w .
+
+  format:check:
+    desc: 检查 Go 源码格式
+    preconditions:
+      - sh: 'unformatted=$(gofmt -l .) && test -z "$unformatted"'
+        msg: Go 源码格式检查未通过，请运行 gofmt -l . 查看原因，再用 task format 修正。
+
+  check:
+    desc: 校验后端格式、依赖、测试、静态检查、配置样例并构建
+    cmds:
+      - task: format:check
+      - go mod verify
+      - task: test
+      - go vet ./...
+      - go run ./cmd/relayleaf config check --config ../examples/relayleaf.file.yaml
+      - task: build

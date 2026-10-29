@@ -1,0 +1,29 @@
+version: '3'
+
+silent: true
+
+includes:
+  backend:
+    taskfile: ./backend/Taskfile.yml
+    dir: ./backend
+
+tasks:
+  default:
+    desc: 列出各项目的常用命令
+    cmds:
+      - task --list
+
+  format:
+    desc: 格式化各项目文件
+    cmds:
+      - task: backend:format
+
+  format:check:
+    desc: 检查各项目格式
+    cmds:
+      - task: backend:format:check
+
+  check:
+    desc: 执行各项目检查
+    cmds:
+      - task: backend:check

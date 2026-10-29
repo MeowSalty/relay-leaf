@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# 协议夹具保存精确的传输字节，包括刻意保留的 CRLF 和截断内容。
+/backend/internal/testkit/testdata/** -text -eol
