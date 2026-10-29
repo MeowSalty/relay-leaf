@@ -41,7 +41,7 @@ func contractSnapshot(t *testing.T, origin string, modify func(*catalog.Data)) *
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := catalog.Data{Gateway: snapshot.GatewayAddress(), Providers: snapshot.Providers(), Targets: snapshot.Targets(), Routes: snapshot.Routes(), ClientKeys: snapshot.ClientKeys(), Verifications: []catalog.Verification{{ClientID: "local-client", Material: catalog.NewSecret(contractClientSecret)}}, Limits: snapshot.Limits(), Execution: snapshot.Execution(), Health: snapshot.Health(), Observability: snapshot.Observability(), SecretsResolved: true}
+	d := catalog.Data{Gateway: snapshot.GatewayAddress(), AccessGroups: snapshot.AccessGroups(), Providers: snapshot.Providers(), Targets: snapshot.Targets(), Routes: snapshot.Routes(), ClientKeys: snapshot.ClientKeys(), Verifications: []catalog.Verification{{ClientID: "local-client", Material: catalog.NewSecret(contractClientSecret)}}, Limits: snapshot.Limits(), Execution: snapshot.Execution(), Health: snapshot.Health(), Observability: snapshot.Observability(), SecretsResolved: true}
 	if modify != nil {
 		modify(&d)
 	}

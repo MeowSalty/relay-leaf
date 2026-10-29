@@ -204,11 +204,31 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer h.state.ReleaseBuffer(runstate.ResponseBuffer, chunkSize)
 	chunk := make([]byte, int(chunkSize))
-	for _, candidate := range selection.Candidates {
+	var checks []runstate.Selection
+	indexes := make(map[routing.CandidateKey]int)
+	for _, target := range selection.Targets {
+		for _, candidate := range target.Candidates {
+			indexes[candidate.Key()] = len(checks)
+			checks = append(checks, runtimeSelection(candidate))
+		}
+	}
+	excluded := make(map[routing.CandidateKey]bool)
+	// 每个组合至多提交一次；失败后重新读取门槛，不在无许可时忙等。
+	for remaining := len(checks); remaining > 0; remaining-- {
 		if ctx.Err() != nil {
 			h.finishUnstarted(ctx, w, r, &record)
 			return
 		}
+		available := h.state.Available(checks)
+		candidate, ok := h.router.Pick(selection, func(candidate routing.Candidate) bool {
+			key := candidate.Key()
+			index, exists := indexes[key]
+			return exists && !excluded[key] && available[index]
+		})
+		if !ok {
+			break
+		}
+		excluded[candidate.Key()] = true
 		mappedBytes := int64(0)
 		if facts.Model != candidate.Target.UpstreamName {
 			name, _ := json.Marshal(candidate.Target.UpstreamName)
@@ -239,6 +259,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.finishUnstarted(ctx, w, r, &record)
 }
 
+func runtimeSelection(candidate routing.Candidate) runstate.Selection {
+	return runstate.Selection{TargetID: candidate.Target.ID, ProviderID: candidate.Provider.ID, CredentialID: candidate.Credential.ID, CredentialVersion: candidate.Credential.Version, QuotaScopes: candidate.QuotaScopes}
+}
+
 func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, out *http.Request, candidate routing.Candidate, request protocol.RequestFacts, chunk []byte, record *observe.RequestRecord) (bool, bool) {
 	exec := candidate.Credential.Execution
 	attemptCtx, cancel := context.WithCancelCause(ctx)
@@ -252,7 +276,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, out *http.
 	var lease *runstate.AttemptLease
 	a, err := h.transport.Start(attemptCtx, out, func() error {
 		var err error
-		lease, err = h.state.Start(attemptCtx, runstate.Selection{TargetID: candidate.Target.ID, ProviderID: candidate.Provider.ID, CredentialID: candidate.Credential.ID, CredentialVersion: candidate.Credential.Version, QuotaScopes: candidate.QuotaScopes}, id)
+		lease, err = h.state.Start(attemptCtx, runtimeSelection(candidate), id)
 		if err != nil {
 			return err
 		}

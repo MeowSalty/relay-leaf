@@ -12,29 +12,30 @@ import (
 func routingData() catalog.Data {
 	return catalog.Data{
 		Providers: map[string]catalog.Provider{"p": {ID: "p", Enabled: true, Origin: "https://upstream.example", Endpoints: map[string]catalog.Endpoint{"e": {ID: "e", Protocol: "openai.responses", Operation: "create", PathTemplate: "/v1/responses", AuthType: "bearer", RequestModes: []string{"non_stream", "stream"}}}, Credentials: map[string]catalog.Credential{
-			"disabled": {ID: "disabled", Enabled: false}, "missing": {ID: "missing", Enabled: true},
-			"a": {ID: "a", Enabled: true, Secret: catalog.NewSecret("upstream-a"), QuotaScopes: []string{"account", "other"}},
-			"b": {ID: "b", Enabled: true, Secret: catalog.NewSecret("upstream-b"), QuotaScopes: []string{"account"}},
+			"disabled": {ID: "disabled", Enabled: false, AccessGroups: []string{"general"}}, "missing": {ID: "missing", Enabled: true, AccessGroups: []string{"general"}},
+			"a": {ID: "a", Enabled: true, AccessGroups: []string{"general"}, Secret: catalog.NewSecret("upstream-a"), QuotaScopes: []string{"account", "other"}},
+			"b": {ID: "b", Enabled: true, AccessGroups: []string{"general"}, Secret: catalog.NewSecret("upstream-b"), QuotaScopes: []string{"account"}},
 		}, QuotaScopes: map[string]catalog.QuotaScope{"account": {ID: "account"}, "target": {ID: "target", Targets: []string{"p/m/e"}}, "other": {ID: "other", Targets: []string{"p/other/e"}}}}},
 		Targets: map[string]catalog.Target{"p/m/e": {ID: "p/m/e", Enabled: true, ProviderID: "p", EndpointID: "e", UpstreamName: "real-model", RequestModes: []string{"non_stream", "stream"}, Capabilities: []string{"tools"}, Credentials: []string{"disabled", "missing", "a", "b"}, QuotaScopes: []string{"account", "target"}}},
-		Routes:  map[string]catalog.Route{"r": {ID: "r", Enabled: true, Protocol: "openai.responses", Operation: "create", PublicModel: "public-model", ResourcePolicy: "stateless_pool", Targets: []catalog.RouteTarget{{Target: "p/m/e"}}}},
+		Routes:  map[string]catalog.Route{"r": {ID: "r", Enabled: true, Protocol: "openai.responses", Operation: "create", PublicModel: "public-model", ResourcePolicy: "stateless_pool", Targets: []catalog.RouteTarget{{Target: "p/m/e", Weight: 1}}}},
 	}
 }
 
 func TestResolveFiltersEachCredentialAndDeduplicatesApplicableScopes(t *testing.T) {
 	router := NewRouter(catalog.NewSnapshot(routingData()))
-	key := catalog.ClientKey{ID: "c", AllowedRoutes: []string{"r"}}
+	key := catalog.ClientKey{ID: "c", AllowedRoutes: []string{"r"}, AllowedAccessGroups: []string{"general"}}
 	facts := protocol.RequestFacts{Model: "public-model", Mode: "non_stream", Capabilities: []string{"tools"}}
 	for i := range 4 {
 		selection, err := router.Resolve(key, facts, nil)
-		if err != nil || len(selection.Candidates) != 2 {
+		if err != nil || len(selection.Targets[0].Candidates) != 2 {
 			t.Fatalf("候选过滤失败：%v %+v", err, selection)
 		}
 		want := []string{"a", "b"}[i%2]
-		if selection.Candidates[0].Credential.ID != want {
-			t.Fatalf("凭据未轮换：得到 %s，预期 %s", selection.Candidates[0].Credential.ID, want)
+		picked, ok := router.Pick(selection, func(Candidate) bool { return true })
+		if !ok || picked.Credential.ID != want {
+			t.Fatalf("凭据未轮换：得到 %s，预期 %s", picked.Credential.ID, want)
 		}
-		for _, candidate := range selection.Candidates {
+		for _, candidate := range selection.Targets[0].Candidates {
 			if !slices.Equal(candidate.QuotaScopes, []string{"p/account", "p/target"}) {
 				t.Fatalf("配额作用域并集错误：%v", candidate.QuotaScopes)
 			}
@@ -58,7 +59,7 @@ func TestResolveRejectsUnauthorizedUnsupportedAndHardReferences(t *testing.T) {
 		{"硬引用", func(_ *catalog.Data, _ *catalog.ClientKey, f *protocol.RequestFacts) {
 			f.ResourceTypes = []string{"openai.response"}
 		}, "resource_owner_unknown"},
-		{"固定资源策略未开放", func(d *catalog.Data, _ *catalog.ClientKey, _ *protocol.RequestFacts) {
+		{"固定资源缺少显式作用域", func(d *catalog.Data, _ *catalog.ClientKey, _ *protocol.RequestFacts) {
 			r := d.Routes["r"]
 			r.ResourcePolicy = "fixed_scope"
 			d.Routes["r"] = r
@@ -78,7 +79,7 @@ func TestResolveRejectsUnauthorizedUnsupportedAndHardReferences(t *testing.T) {
 		}, "no_available_target"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			data, key, facts := routingData(), catalog.ClientKey{AllowedRoutes: []string{"r"}}, protocol.RequestFacts{Model: "public-model", Mode: "non_stream"}
+			data, key, facts := routingData(), catalog.ClientKey{AllowedRoutes: []string{"r"}, AllowedAccessGroups: []string{"general"}}, protocol.RequestFacts{Model: "public-model", Mode: "non_stream"}
 			tc.modify(&data, &key, &facts)
 			_, err := NewRouter(catalog.NewSnapshot(data)).Resolve(key, facts, nil)
 			if err == nil || err.Code != tc.code {
@@ -88,18 +89,23 @@ func TestResolveRejectsUnauthorizedUnsupportedAndHardReferences(t *testing.T) {
 	}
 }
 
-func TestResolveConcurrentRotationIsBalanced(t *testing.T) {
+func TestPickConcurrentRotationIsBalanced(t *testing.T) {
 	router := NewRouter(catalog.NewSnapshot(routingData()))
 	var wg sync.WaitGroup
 	results := make(chan string, 100)
 	for range 100 {
 		wg.Go(func() {
-			selection, err := router.Resolve(catalog.ClientKey{AllowedRoutes: []string{"r"}}, protocol.RequestFacts{Model: "public-model", Mode: "stream"}, nil)
+			selection, err := router.Resolve(catalog.ClientKey{AllowedRoutes: []string{"r"}, AllowedAccessGroups: []string{"general"}}, protocol.RequestFacts{Model: "public-model", Mode: "stream"}, nil)
 			if err != nil {
 				t.Errorf("并发路由失败：%v", err)
 				return
 			}
-			results <- selection.Candidates[0].Credential.ID
+			picked, ok := router.Pick(selection, func(Candidate) bool { return true })
+			if !ok {
+				t.Error("没有可用候选")
+				return
+			}
+			results <- picked.Credential.ID
 		})
 	}
 	wg.Wait()
@@ -124,15 +130,15 @@ func TestResolveKeepsProviderAndRouteScopeIdentitiesSeparate(t *testing.T) {
 	data.Targets[secondTarget.ID] = secondTarget
 	secondRoute := data.Routes["r"]
 	secondRoute.ID, secondRoute.PublicModel = "s", "second-model"
-	secondRoute.Targets = []catalog.RouteTarget{{Target: secondTarget.ID}}
+	secondRoute.Targets = []catalog.RouteTarget{{Target: secondTarget.ID, Weight: 1}}
 	data.Routes[secondRoute.ID] = secondRoute
 	router := NewRouter(catalog.NewSnapshot(data))
 	for _, tc := range []struct{ model, provider, scope string }{{"public-model", "p", "p/account"}, {"second-model", "q", "q/account"}} {
-		selection, err := router.Resolve(catalog.ClientKey{AllowedRoutes: []string{"r", "s"}}, protocol.RequestFacts{Model: tc.model, Mode: "non_stream"}, nil)
+		selection, err := router.Resolve(catalog.ClientKey{AllowedRoutes: []string{"r", "s"}, AllowedAccessGroups: []string{"general"}}, protocol.RequestFacts{Model: tc.model, Mode: "non_stream"}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, candidate := range selection.Candidates {
+		for _, candidate := range selection.Targets[0].Candidates {
 			if candidate.Provider.ID != tc.provider || !slices.Contains(candidate.QuotaScopes, tc.scope) {
 				t.Fatalf("不同提供方的同名资源混合：%+v", candidate)
 			}

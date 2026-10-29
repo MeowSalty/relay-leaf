@@ -233,7 +233,7 @@ func TestListenerForwardsDataAndStops(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 直接构造监听地址为临时端口的快照，避免测试争用固定端口。
-	snapshot = catalog.NewSnapshot(catalog.Data{Gateway: "127.0.0.1:0", Providers: snapshot.Providers(), Targets: snapshot.Targets(), Routes: snapshot.Routes(), ClientKeys: snapshot.ClientKeys(), Verifications: []catalog.Verification{{ClientID: "local-client", Material: catalog.NewSecret(strings.Repeat("c", 32))}}, Limits: snapshot.Limits(), Execution: snapshot.Execution(), Health: snapshot.Health(), Observability: snapshot.Observability(), SecretsResolved: true})
+	snapshot = catalog.NewSnapshot(catalog.Data{Gateway: "127.0.0.1:0", AccessGroups: snapshot.AccessGroups(), Providers: snapshot.Providers(), Targets: snapshot.Targets(), Routes: snapshot.Routes(), ClientKeys: snapshot.ClientKeys(), Verifications: []catalog.Verification{{ClientID: "local-client", Material: catalog.NewSecret(strings.Repeat("c", 32))}}, Limits: snapshot.Limits(), Execution: snapshot.Execution(), Health: snapshot.Health(), Observability: snapshot.Observability(), SecretsResolved: true})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	output := &startupOutput{started: make(chan string, 1)}
