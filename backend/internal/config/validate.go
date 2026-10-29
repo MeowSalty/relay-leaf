@@ -18,6 +18,17 @@ func operation(protocol, op string) error {
 	}
 	return nil
 }
+func (c *compiler) accessGroupRefs(ids []string, groups map[string]catalog.AccessGroup, path string) error {
+	if err := c.unique(ids, path, true); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, ok := groups[id]; !ok {
+			return c.err(path, "访问组引用了未知组")
+		}
+	}
+	return nil
+}
 func (c *compiler) modes(modes []string, path string) error {
 	if len(modes) == 0 {
 		return c.err(path, "请求模式不能为空")
@@ -327,10 +338,10 @@ func (c *compiler) routeOptions(r routeDTO, path string) error {
 		return c.err(path+".resource_policy.scope", "stateless_pool 不允许设置 scope")
 	}
 	if r.ResourcePolicy.Mode == "fixed_scope" {
-		if len(strings.Split(r.ResourcePolicy.Scope, "/")) != 2 {
+		parts := strings.Split(r.ResourcePolicy.Scope, "/")
+		if len(parts) != 2 || !safePathPart(parts[0]) || !safePathPart(parts[1]) {
 			return c.err(path+".resource_policy.scope", "需要 provider/scope 格式")
 		}
-		return c.err(path+".resource_policy.mode", "不支持：尚未实现固定资源作用域执行")
 	}
 	if r.Selection != nil {
 		s := r.Selection

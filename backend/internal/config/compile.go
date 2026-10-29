@@ -179,7 +179,10 @@ func (c *compiler) compile(ctx context.Context, d document) (*catalog.Snapshot, 
 	if d.ClientAuth.Keys == nil {
 		return nil, c.err("$.client_auth.keys", "必须提供客户端密钥映射")
 	}
-	data := catalog.Data{Gateway: d.Listeners.Gateway, Providers: map[string]catalog.Provider{}, Targets: map[string]catalog.Target{}, Routes: map[string]catalog.Route{}, ClientKeys: map[string]catalog.ClientKey{}, SecretsResolved: c.options.ResolveSecrets}
+	data := catalog.Data{Gateway: d.Listeners.Gateway, AccessGroups: map[string]catalog.AccessGroup{}, Providers: map[string]catalog.Provider{}, Targets: map[string]catalog.Target{}, Routes: map[string]catalog.Route{}, ClientKeys: map[string]catalog.ClientKey{}, SecretsResolved: c.options.ResolveSecrets}
+	for _, id := range sortedKeys(d.AccessGroups) {
+		data.AccessGroups[id] = catalog.AccessGroup{ID: id, Name: d.AccessGroups[id].Name}
+	}
 	data.Observability = catalog.Observability{RecentRequestCapacity: 1000, MaxObservedJSONBytes: 1048576, MaxObservedSSEEventBytes: 262144, MaxObservedStateBytes: 262144, LogQueueCapacity: 2048}
 	data.Execution, err = c.execution(defaultExecution(), d.Execution, "$.execution_defaults", 0)
 	if err != nil {
@@ -267,6 +270,12 @@ func (c *compiler) compile(ctx context.Context, d document) (*catalog.Snapshot, 
 		for _, cid := range sortedKeys(p.Credentials) {
 			v := p.Credentials[cid]
 			cp := path + ".credentials." + cid
+			if len(v.AccessGroups) == 0 {
+				return nil, c.err(cp+".access_groups", "凭据必须设置非空的访问组列表")
+			}
+			if err := c.accessGroupRefs(v.AccessGroups, data.AccessGroups, cp+".access_groups"); err != nil {
+				return nil, err
+			}
 			if err := c.secretSource(v.Secret, v.SecretRef, cp, false); err != nil {
 				return nil, err
 			}
@@ -297,7 +306,7 @@ func (c *compiler) compile(ctx context.Context, d document) (*catalog.Snapshot, 
 			if version == "" {
 				version = "none"
 			}
-			cred := catalog.Credential{ID: cid, Name: v.Name, Enabled: enabled(v.Enabled), Version: version, Attributes: v.Identity.Attributes, Selectors: v.Identity.Selectors, ResourceScope: v.ResourceScope, QuotaScopes: v.QuotaScopes}
+			cred := catalog.Credential{ID: cid, Name: v.Name, Enabled: enabled(v.Enabled), Version: version, Attributes: v.Identity.Attributes, Selectors: v.Identity.Selectors, ResourceScope: v.ResourceScope, QuotaScopes: v.QuotaScopes, AccessGroups: v.AccessGroups}
 			cred.Execution, err = c.execution(provider.Execution, v.Execution, cp+".execution", 2)
 			if err != nil {
 				return nil, err
@@ -338,7 +347,7 @@ func (c *compiler) compile(ctx context.Context, d document) (*catalog.Snapshot, 
 					if !slices.Contains([]string{"image_input", "tool_calling", "file_input", "audio_input", "video_input", "server_tools", "image_output", "audio_output"}, cap) {
 						return nil, c.err(bp+".capabilities", "未知能力")
 					}
-					if cap != "image_input" && cap != "tool_calling" {
+					if cap != "image_input" && cap != "tool_calling" && cap != "file_input" && cap != "server_tools" {
 						return nil, c.err(bp+".capabilities", "不支持：尚未实现声明的能力")
 					}
 				}
@@ -355,7 +364,6 @@ func (c *compiler) compile(ctx context.Context, d document) (*catalog.Snapshot, 
 					return nil, err
 				}
 				active := provider.Enabled && enabled(b.Enabled)
-				available := false
 				for _, cid := range b.Credentials {
 					cred, ok := provider.Credentials[cid]
 					if !ok {
@@ -366,7 +374,6 @@ func (c *compiler) compile(ctx context.Context, d document) (*catalog.Snapshot, 
 						return nil, c.err(path+".credentials."+cid+".secret", "上游 Bearer 密钥的 token 语法无效")
 					}
 					if active && cred.Enabled {
-						available = true
 						if e.AuthType != "none" {
 							if source.Secret == nil && source.SecretRef == nil {
 								return nil, c.err(path+".credentials."+cid, "启用的认证要求设置 secret 或 secret_ref")
@@ -380,9 +387,6 @@ func (c *compiler) compile(ctx context.Context, d document) (*catalog.Snapshot, 
 							return nil, c.err("$.health_defaults.circuit_breaker.enabled", "不支持：尚未实现自动熔断")
 						}
 					}
-				}
-				if active && !available {
-					return nil, c.err(bp+".credentials", "启用的绑定需要启用的凭据")
 				}
 				if active && (e.Protocol != "openai.responses" || e.Operation != "create") {
 					return nil, c.err(path+".endpoints."+eid+".operation", "不支持：仅实现了 Responses create")
@@ -434,7 +438,16 @@ func (c *compiler) compile(ctx context.Context, d document) (*catalog.Snapshot, 
 			return nil, err
 		}
 		route := catalog.Route{ID: rid, Name: r.Name, Enabled: enabled(r.Enabled), Protocol: r.Protocol, Operation: r.Operation, PublicModel: r.PublicModel, ResourcePolicy: r.ResourcePolicy.Mode, ResourceScope: r.ResourcePolicy.Scope}
-		activeCount := 0
+		if r.ResourcePolicy.Mode == "fixed_scope" {
+			pid, sid, _ := strings.Cut(r.ResourcePolicy.Scope, "/")
+			provider, ok := data.Providers[pid]
+			if !ok {
+				return nil, c.err(path+".resource_policy.scope", "未知提供方")
+			}
+			if _, ok := provider.ResourceScopes[sid]; !ok {
+				return nil, c.err(path+".resource_policy.scope", "必须引用显式声明的资源作用域")
+			}
+		}
 		seen := map[string]bool{}
 		for i, rt := range r.Targets {
 			rp := indexPath(path+".targets", i)
@@ -453,16 +466,22 @@ func (c *compiler) compile(ctx context.Context, d document) (*catalog.Snapshot, 
 			if rt.Priority < 0 || rt.Priority > 2147483647 || !(rt.Weight > 0) || math.IsInf(rt.Weight, 0) || math.IsNaN(rt.Weight) {
 				return nil, c.err(rp, "优先级必须非负，权重必须为有限正数")
 			}
-			if t.Enabled {
-				activeCount++
+			if r.ResourcePolicy.Mode == "fixed_scope" {
+				pid, sid, _ := strings.Cut(r.ResourcePolicy.Scope, "/")
+				if t.ProviderID != pid {
+					return nil, c.err(rp+".target", "固定资源作用域要求全部目标属于同一提供方")
+				}
+				member := false
+				for _, cid := range t.Credentials {
+					if data.Providers[pid].Credentials[cid].ResourceScope == sid {
+						member = true
+					}
+				}
+				if !member {
+					return nil, c.err(rp+".target", "目标必须绑定固定资源作用域中的凭据")
+				}
 			}
 			route.Targets = append(route.Targets, catalog.RouteTarget{Target: rt.Target, Priority: rt.Priority, Weight: rt.Weight})
-		}
-		if route.Enabled && activeCount > 1 {
-			return nil, c.err(path+".targets", "不支持：尚未实现多个启用的目标")
-		}
-		if route.Enabled && activeCount == 0 {
-			return nil, c.err(path+".targets", "启用的路由要求存在启用的目标")
 		}
 		data.Routes[rid] = route
 	}
@@ -491,11 +510,23 @@ func (c *compiler) compile(ctx context.Context, d document) (*catalog.Snapshot, 
 				return nil, c.err(path+".allowed_routes", "路由授权引用了未知路由")
 			}
 		}
+		if k.AllowedAccessGroups == nil {
+			return nil, c.err(path+".allowed_access_groups", "必须显式设置上游访问组允许列表")
+		}
+		if err := c.accessGroupRefs(k.AllowedAccessGroups, data.AccessGroups, path+".allowed_access_groups"); err != nil {
+			return nil, err
+		}
+		if err := c.accessGroupRefs(k.DeniedAccessGroups, data.AccessGroups, path+".denied_access_groups"); err != nil {
+			return nil, err
+		}
+		if k.DeniedAccessGroups == nil {
+			k.DeniedAccessGroups = []string{}
+		}
 		limits, err := c.localLimits(k.Limits, path+".limits")
 		if err != nil {
 			return nil, err
 		}
-		ck := catalog.ClientKey{ID: kid, Name: k.Name, Version: k.SecretVersion, Enabled: enabled(k.Enabled), AllowedRoutes: k.AllowedRoutes, Limits: limits}
+		ck := catalog.ClientKey{ID: kid, Name: k.Name, Version: k.SecretVersion, Enabled: enabled(k.Enabled), AllowedRoutes: k.AllowedRoutes, AllowedAccessGroups: k.AllowedAccessGroups, DeniedAccessGroups: k.DeniedAccessGroups, Limits: limits}
 		if k.ExpiresAt != nil {
 			ck.ExpiresAt, err = c.timestamp(*k.ExpiresAt, path+".expires_at")
 			if err != nil {

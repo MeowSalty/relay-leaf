@@ -8,13 +8,17 @@ type document struct {
 	UI        struct {
 		Enabled bool `yaml:"enabled"`
 	} `yaml:"ui"`
-	ClientAuth    clientAuthDTO          `yaml:"client_auth"`
-	Providers     map[string]providerDTO `yaml:"providers"`
-	Routes        map[string]routeDTO    `yaml:"routes"`
-	Execution     *executionDTO          `yaml:"execution_defaults"`
-	Health        *healthDTO             `yaml:"health_defaults"`
-	Limits        limitsDTO              `yaml:"limits"`
-	Observability *observabilityDTO      `yaml:"observability"`
+	ClientAuth    clientAuthDTO             `yaml:"client_auth"`
+	AccessGroups  map[string]accessGroupDTO `yaml:"access_groups"`
+	Providers     map[string]providerDTO    `yaml:"providers"`
+	Routes        map[string]routeDTO       `yaml:"routes"`
+	Execution     *executionDTO             `yaml:"execution_defaults"`
+	Health        *healthDTO                `yaml:"health_defaults"`
+	Limits        limitsDTO                 `yaml:"limits"`
+	Observability *observabilityDTO         `yaml:"observability"`
+}
+type accessGroupDTO struct {
+	Name string `yaml:"name"`
 }
 type listenersDTO struct {
 	Gateway string `yaml:"gateway"`
@@ -26,15 +30,17 @@ type clientAuthDTO struct {
 	Keys                map[string]clientKeyDTO `yaml:"keys"`
 }
 type clientKeyDTO struct {
-	Name          string          `yaml:"name"`
-	Enabled       *bool           `yaml:"enabled"`
-	Secret        *string         `yaml:"secret"`
-	SecretRef     *string         `yaml:"secret_ref"`
-	SecretVersion string          `yaml:"secret_version"`
-	ExpiresAt     *string         `yaml:"expires_at"`
-	AllowedRoutes []string        `yaml:"allowed_routes"`
-	Limits        *localLimitsDTO `yaml:"limits"`
-	Retiring      *retiringDTO    `yaml:"retiring_secret"`
+	Name                string          `yaml:"name"`
+	Enabled             *bool           `yaml:"enabled"`
+	Secret              *string         `yaml:"secret"`
+	SecretRef           *string         `yaml:"secret_ref"`
+	SecretVersion       string          `yaml:"secret_version"`
+	ExpiresAt           *string         `yaml:"expires_at"`
+	AllowedRoutes       []string        `yaml:"allowed_routes"`
+	AllowedAccessGroups []string        `yaml:"allowed_access_groups"`
+	DeniedAccessGroups  []string        `yaml:"denied_access_groups"`
+	Limits              *localLimitsDTO `yaml:"limits"`
+	Retiring            *retiringDTO    `yaml:"retiring_secret"`
 }
 type retiringDTO struct {
 	Secret        *string `yaml:"secret"`
@@ -55,11 +61,12 @@ type providerDTO struct {
 	QuotaScopes    map[string]quotaScopeDTO    `yaml:"quota_scopes"`
 }
 type credentialDTO struct {
-	Name          string  `yaml:"name"`
-	Enabled       *bool   `yaml:"enabled"`
-	Secret        *string `yaml:"secret"`
-	SecretRef     *string `yaml:"secret_ref"`
-	SecretVersion string  `yaml:"secret_version"`
+	AccessGroups  []string `yaml:"access_groups"`
+	Name          string   `yaml:"name"`
+	Enabled       *bool    `yaml:"enabled"`
+	Secret        *string  `yaml:"secret"`
+	SecretRef     *string  `yaml:"secret_ref"`
+	SecretVersion string   `yaml:"secret_version"`
 	Identity      struct {
 		Attributes map[string]string `yaml:"attributes"`
 		Selectors  map[string]string `yaml:"selectors"`

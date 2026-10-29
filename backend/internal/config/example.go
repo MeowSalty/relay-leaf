@@ -15,6 +15,9 @@ listeners:
   gateway: 127.0.0.1:17890
 ui:
   enabled: false
+access_groups:
+  general:
+    name: 普通上游
 client_auth:
   mode: api_key
   allow_gemini_query_key: false
@@ -24,6 +27,8 @@ client_auth:
       secret_ref: env:RELAYLEAF_CLIENT_KEY
       secret_version: v1
       allowed_routes: [example-responses]
+      allowed_access_groups: [general]
+      denied_access_groups: []
       limits: {max_inflight: 4}
 providers:
   example-provider:
@@ -32,6 +37,7 @@ providers:
     credentials:
       example-key:
         enabled: true
+        access_groups: [general]
         secret_ref: env:RELAYLEAF_UPSTREAM_KEY
         secret_version: v1
     endpoints:

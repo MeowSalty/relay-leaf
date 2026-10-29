@@ -309,7 +309,7 @@ func TestInlineSecretDuplicateAcrossSources(t *testing.T) {
 			}
 			for _, secondSource := range []string{
 				strings.Replace(inlineConfig(t), "      secret_version: v1", "      retiring_secret: {secret_ref: "+reference+", secret_version: old, valid_until: '2026-10-29T00:00:00Z'}\n      secret_version: v1", 1),
-				strings.Replace(inlineConfig(t), "providers:\n", "    second-client:\n      secret_ref: "+reference+"\n      secret_version: v1\n      allowed_routes: [example-responses]\nproviders:\n", 1),
+				strings.Replace(inlineConfig(t), "providers:\n", "    second-client:\n      secret_ref: "+reference+"\n      secret_version: v1\n      allowed_routes: [example-responses]\n      allowed_access_groups: [general]\nproviders:\n", 1),
 			} {
 				_, err := loadBytes(context.Background(), filepath.Join(directory, "relayleaf.yaml"), []byte(secondSource), testOptions())
 				if err == nil || !strings.Contains(err.Error(), "重复") || strings.Contains(err.Error(), validClient) {

@@ -309,16 +309,7 @@ func TestGraphBoundariesAndScopes(t *testing.T) {
 			d.ClientAuth.Keys["local-client"] = k
 		},
 		"conflicting_route": func(d *document) { d.Routes["second-route"] = d.Routes["example-responses"] },
-		"two_enabled_targets": func(d *document) {
-			p := d.Providers["example-provider"]
-			p.Models["second-model"] = p.Models["example-model"]
-			r := d.Routes["example-responses"]
-			target := r.Targets[0]
-			target.Target = "example-provider/second-model/responses"
-			r.Targets = append(r.Targets, target)
-			d.Routes["example-responses"] = r
-		},
-		"capacity": func(d *document) { d.Limits.MaxRuntimeStateEntries = 2 },
+		"capacity":          func(d *document) { d.Limits.MaxRuntimeStateEntries = 2 },
 		"scope_owner_mismatch": func(d *document) {
 			p := d.Providers["example-provider"]
 			p.ResourceScopes = map[string]resourceScopeDTO{"project": {Owner: map[string]string{"project": "p"}, ResourceTypes: []string{"openai.response"}}}
@@ -449,7 +440,11 @@ func TestClosedRulesRetainedAndInherited(t *testing.T) {
 	}
 }
 func TestCapabilityClassification(t *testing.T) {
-	for _, cap := range []string{"file_input", "audio_input", "video_input", "server_tools", "image_output", "audio_output", "typo"} {
+	for _, cap := range []string{"image_input", "tool_calling", "file_input", "server_tools"} {
+		source := strings.Replace(string(Example()), "credentials: [example-key]", "credentials: [example-key]\n            capabilities: ["+cap+"]", 1)
+		parse(t, source, Options{})
+	}
+	for _, cap := range []string{"audio_input", "video_input", "image_output", "audio_output", "typo"} {
 		source := strings.Replace(string(Example()), "credentials: [example-key]", "credentials: [example-key]\n            capabilities: ["+cap+"]", 1)
 		_, err := loadBytes(context.Background(), "fixture.yaml", []byte(source), Options{})
 		if err == nil {
