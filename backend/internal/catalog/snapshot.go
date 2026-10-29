@@ -103,6 +103,7 @@ type Credential struct {
 	Secret                           Secret
 	Attributes, Selectors            map[string]string
 	QuotaScopes                      []string
+	AccessGroups                     []string
 	Execution                        Execution
 }
 type Target struct {
@@ -132,13 +133,14 @@ type Route struct {
 	Targets                                                                   []RouteTarget
 }
 type ClientKey struct {
-	ID, Name                 string
-	Version, RetiringVersion string
-	RetiringValidUntil       time.Time
-	Enabled                  bool
-	ExpiresAt                time.Time
-	AllowedRoutes            []string
-	Limits                   LocalLimits
+	ID, Name                                string
+	Version, RetiringVersion                string
+	RetiringValidUntil                      time.Time
+	Enabled                                 bool
+	ExpiresAt                               time.Time
+	AllowedRoutes                           []string
+	AllowedAccessGroups, DeniedAccessGroups []string
+	Limits                                  LocalLimits
 }
 type Verification struct {
 	ClientID   string
@@ -146,7 +148,10 @@ type Verification struct {
 	ValidUntil time.Time
 }
 
+type AccessGroup struct{ ID, Name string }
+
 type Data struct {
+	AccessGroups    map[string]AccessGroup
 	Gateway         string
 	Providers       map[string]Provider
 	Targets         map[string]Target
@@ -186,14 +191,15 @@ func (s *Snapshot) GatewayAddress() string { return s.data.Gateway }
 func (s *Snapshot) Summary() Summary {
 	return Summary{len(s.data.Providers), len(s.data.Targets), len(s.data.Routes), len(s.data.ClientKeys), s.data.SecretsResolved}
 }
-func (s *Snapshot) Providers() map[string]Provider   { return cloneData(s.data).Providers }
-func (s *Snapshot) Targets() map[string]Target       { return cloneData(s.data).Targets }
-func (s *Snapshot) Routes() map[string]Route         { return cloneData(s.data).Routes }
-func (s *Snapshot) ClientKeys() map[string]ClientKey { return cloneData(s.data).ClientKeys }
-func (s *Snapshot) Limits() Limits                   { return s.data.Limits }
-func (s *Snapshot) Execution() Execution             { return cloneExecution(s.data.Execution) }
-func (s *Snapshot) Health() Health                   { return cloneHealth(s.data.Health) }
-func (s *Snapshot) Observability() Observability     { return s.data.Observability }
+func (s *Snapshot) Providers() map[string]Provider       { return cloneData(s.data).Providers }
+func (s *Snapshot) Targets() map[string]Target           { return cloneData(s.data).Targets }
+func (s *Snapshot) Routes() map[string]Route             { return cloneData(s.data).Routes }
+func (s *Snapshot) ClientKeys() map[string]ClientKey     { return cloneData(s.data).ClientKeys }
+func (s *Snapshot) AccessGroups() map[string]AccessGroup { return maps.Clone(s.data.AccessGroups) }
+func (s *Snapshot) Limits() Limits                       { return s.data.Limits }
+func (s *Snapshot) Execution() Execution                 { return cloneExecution(s.data.Execution) }
+func (s *Snapshot) Health() Health                       { return cloneHealth(s.data.Health) }
+func (s *Snapshot) Observability() Observability         { return s.data.Observability }
 
 // Authenticate 校验摘要是否相等，不暴露摘要或密钥内容。
 func (s *Snapshot) Authenticate(token string, now time.Time) (ClientKey, bool) {
@@ -210,6 +216,8 @@ func (s *Snapshot) Authenticate(token string, now time.Time) (ClientKey, bool) {
 		return ClientKey{}, false
 	}
 	k.AllowedRoutes = slices.Clone(k.AllowedRoutes)
+	k.AllowedAccessGroups = slices.Clone(k.AllowedAccessGroups)
+	k.DeniedAccessGroups = slices.Clone(k.DeniedAccessGroups)
 	return k, true
 }
 func cloneMatch(m Match) Match {
@@ -238,6 +246,7 @@ func cloneHealth(h Health) Health {
 	return h
 }
 func cloneData(d Data) Data {
+	d.AccessGroups = maps.Clone(d.AccessGroups)
 	d.Providers = maps.Clone(d.Providers)
 	d.Targets = maps.Clone(d.Targets)
 	d.Routes = maps.Clone(d.Routes)
@@ -272,6 +281,7 @@ func cloneData(d Data) Data {
 			c.Attributes = maps.Clone(c.Attributes)
 			c.Selectors = maps.Clone(c.Selectors)
 			c.QuotaScopes = slices.Clone(c.QuotaScopes)
+			c.AccessGroups = slices.Clone(c.AccessGroups)
 			c.Execution = cloneExecution(c.Execution)
 			p.Credentials[k] = c
 		}
@@ -290,6 +300,8 @@ func cloneData(d Data) Data {
 	}
 	for id, k := range d.ClientKeys {
 		k.AllowedRoutes = slices.Clone(k.AllowedRoutes)
+		k.AllowedAccessGroups = slices.Clone(k.AllowedAccessGroups)
+		k.DeniedAccessGroups = slices.Clone(k.DeniedAccessGroups)
 		d.ClientKeys[id] = k
 	}
 	d.Verifications = slices.Clone(d.Verifications)
