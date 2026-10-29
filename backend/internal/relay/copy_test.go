@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -75,67 +76,77 @@ func TestCopyFlushRawBytesTrailerAndUpstreamWait(t *testing.T) {
 
 type slowPeerConn struct {
 	net.Conn
-	active  atomic.Int64
-	written atomic.Int64
-	reached chan struct{}
-	once    sync.Once
+	active    atomic.Int64
+	writeSize atomic.Int64
 }
 
 func (c *slowPeerConn) Write(p []byte) (int, error) {
 	c.active.Add(1)
 	defer c.active.Add(-1)
-	if c.written.Load() > 128<<10 {
-		c.once.Do(func() { close(c.reached) })
-	}
-	n, e := c.Conn.Write(p)
-	c.written.Add(int64(n))
-	return n, e
+	c.writeSize.Store(int64(len(p)))
+	return c.Conn.Write(p)
 }
 
-type slowPeerListener struct {
+type singleConnListener struct {
 	net.Listener
-	accepted chan *slowPeerConn
+	conn net.Conn
+	once sync.Once
 }
 
-func (l *slowPeerListener) Accept() (net.Conn, error) {
-	c, e := l.Listener.Accept()
-	if e != nil {
-		return nil, e
+func (l *singleConnListener) Accept() (net.Conn, error) {
+	var conn net.Conn
+	l.once.Do(func() { conn = l.conn })
+	if conn != nil {
+		return conn, nil
 	}
-	if tcp, ok := c.(*net.TCPConn); ok {
-		tcp.SetWriteBuffer(1024)
-	}
-	x := &slowPeerConn{Conn: c, reached: make(chan struct{})}
-	l.accepted <- x
-	return x, nil
+	return l.Listener.Accept()
 }
 
-func TestCopySlowDownstreamEndsSocketWrite(t *testing.T) {
-	for _, idle := range []time.Duration{0, 40 * time.Millisecond} {
+func TestCopySlowDownstreamEndsConnectionWrite(t *testing.T) {
+	for _, idle := range []time.Duration{0, time.Second} {
 		t.Run(map[bool]string{true: "idle-timeout", false: "cancel"}[idle > 0], func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+			conn, client := net.Pipe()
+			peer := &slowPeerConn{Conn: conn}
 			result := make(chan error, 1)
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				err := CopyResponse(ctx, writerWrapper{w}, &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(zeroReader{})}, idle)
 				result <- err
 				panic(http.ErrAbortHandler)
 			}))
-			ln := &slowPeerListener{Listener: server.Listener, accepted: make(chan *slowPeerConn, 1)}
-			server.Listener = ln
+			server.Listener = &singleConnListener{Listener: server.Listener, conn: peer}
 			server.Start()
 			defer server.Close()
-			client, err := net.Dial("tcp", ln.Addr().String())
-			if err != nil {
+			defer client.Close()
+			if err := client.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
 				t.Fatal(err)
 			}
-			defer client.Close()
-			if tcp, ok := client.(*net.TCPConn); ok {
-				tcp.SetReadBuffer(1024)
+			if _, err := io.WriteString(client, "GET / HTTP/1.1\r\nHost: local\r\n\r\n"); err != nil {
+				t.Fatalf("发送请求: %v", err)
 			}
-			io.WriteString(client, "GET / HTTP/1.1\r\nHost: local\r\n\r\n")
-			peer := <-ln.accepted
-			waitDone(t, peer.reached)
+			// CopyResponse 单独刷新响应头，读取这次写入不会消费正文。
+			reader := bufio.NewReader(client)
+			for {
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					t.Fatalf("读取响应头: %v", err)
+				}
+				if line == "\r\n" {
+					break
+				}
+			}
+			if reader.Buffered() != 0 {
+				t.Fatal("读取响应头时预取了正文")
+			}
+			// net.Pipe 没有缓冲。只读一个字节，确保当前 Write 已开始，
+			// 且剩余字节仍等待客户端读取，不依赖系统的 TCP 缓冲大小。
+			if _, err := io.ReadFull(client, make([]byte, 1)); err != nil {
+				t.Fatalf("读取响应头后的首字节: %v", err)
+			}
+			if peer.active.Load() != 1 || peer.writeSize.Load() <= 1 {
+				t.Fatal("下游连接没有等待读取剩余字节的 Write")
+			}
 			if idle == 0 {
 				cancel()
 			}
@@ -147,8 +158,11 @@ func TestCopySlowDownstreamEndsSocketWrite(t *testing.T) {
 				if idle > 0 && !os.IsTimeout(err) {
 					t.Fatalf("预期超时: %v", err)
 				}
+				if idle == 0 && !errors.Is(err, context.Canceled) && !os.IsTimeout(err) {
+					t.Fatalf("预期取消或写入截止时间错误: %v", err)
+				}
 			case <-time.After(3 * time.Second):
-				t.Fatal("取消后被阻塞的写入操作仍在运行")
+				t.Fatal("取消或超时后被阻塞的写入操作仍在运行")
 			}
 			if peer.active.Load() != 0 {
 				t.Fatal("底层下游 Write 仍在运行")
