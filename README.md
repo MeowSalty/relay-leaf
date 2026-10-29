@@ -2,7 +2,7 @@
 
 本地即用、可自托管的轻量 AI 网关：按协议、模型和权限选择上游，保留原协议转发，并提供调度、健康管理和可观测性。
 
-已提供配置模板生成、离线检查、秘密解析和本地启动。数据端口统一返回 HTTP 503，尚未提供请求转发。传输与原字节样本的测试范围见 [测试样本说明](backend/internal/testkit/README.md)。
+已提供配置模板生成、离线检查、秘密解析和文件模式启动。数据入口支持 `POST /v1/responses` 的普通及 SSE 流式调用，按公开模型和客户端授权选择配置的上游，保留原协议响应。传输与原字节样本的测试范围见 [测试样本说明](backend/internal/testkit/README.md)。
 
 构建与验证使用 Go 1.26 系列，建议使用该系列的最新补丁版本；后端是独立 Go 模块，运行不需要数据库、前端工具或 CGO。
 
@@ -59,7 +59,21 @@ providers:
 
 普通 `config check` 校验已填写的 `secret` 及来源字段，不读取环境变量或密钥文件；`--resolve-secrets` 和启动检查按启用状态与有效期解析全部必需材料，并检查客户端密钥是否重复。两种检查的输出均不包含秘密值。`file:` 引用相对配置文件目录解析。无参数启动使用当前目录的 `relayleaf.yaml`；缺文件或端口占用明确失败，不切换配置来源，也不递增端口。默认数据监听为 `127.0.0.1:17890`，没有管理监听。正常停止退出码为 0，配置或启动错误为 1，参数错误为 2。
 
-[最小文件样例](examples/relayleaf.file.yaml) 由同一模板生成。样例显式关闭自动重试、自动熔断和 UI，空回检测保留配置默认值。配置检查通过表示字段和引用关系有效；数据端口尚未执行路由、鉴权准入或转发策略。
+[最小文件样例](examples/relayleaf.file.yaml) 由同一模板生成。样例显式关闭自动重试、自动熔断、队列和 UI，保留默认空回检测。每个路由最多配置一个启用目标；目标可配置多个凭据，合法凭据轮流使用。实例、客户端、目标和适用配额域支持并发限制。自动重试、多目标调度、管理界面和其他协议入口尚未开放；已识别的上游硬资源引用会被拒绝，避免把资源发送给无法确认归属的凭据。
+
+每个请求最多发起一次真实上游调用。空回检测仅在请求允许重放时暂存响应；确认没有有效输出时返回 `502/upstream_empty_response`，出现有效输出后立即交付。未知事件、观察到限或观察不受支持时降级透传；响应已提交后发生错误则终止传输。
+
+上游冷却独立于自动熔断：429 的限制范围不明时只限制当前凭据，无有效 `Retry-After` 时使用 `quota_cooldown`，到期仅放行一个恢复尝试。已确认的余额或消费额度耗尽会保持限制，修复额度后需重启进程重新加载配置。普通 401/403/404 不被推断为永久失效。
+
+完成上游配置并启动后，以下 PowerShell 示例调用模板中的公开模型：
+
+```powershell
+$requestHeaders = @{ Authorization = "Bearer $env:RELAYLEAF_CLIENT_KEY" }
+$requestBody = '{"model":"example-assistant","input":"你好","stream":false}'
+Invoke-RestMethod -Uri http://127.0.0.1:17890/v1/responses -Method Post -Headers $requestHeaders -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($requestBody))
+```
+
+请求正文接受 UTF-8 JSON 和单一 `identity` 或 `gzip` 编码。路由精确匹配公开模型名；网关只替换顶层模型字符串，未知普通字段保留。gzip 请求无需修改时保留原压缩字节，替换模型时使用 identity 正文并重建相关头。压缩响应原样传输，语义观察降级。客户端使用配置中的 RelayLeaf ClientKey。
 
 ```text
 go build ./...
