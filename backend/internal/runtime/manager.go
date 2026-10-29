@@ -298,6 +298,59 @@ type AttemptLease struct {
 	settled   bool
 }
 
+// Available 在同一时刻检查候选的当前门槛，不领取许可或修改计数、限制代次。
+// 返回项与输入顺序一致；真正提交时仍须由 Start 原子复核。
+func (m *Manager) Available(selections []Selection) []bool {
+	available := make([]bool, len(selections))
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	for i, selection := range selections {
+		_, err := m.availableLocked(selection, now)
+		available[i] = err == nil
+	}
+	return available
+}
+
+// availableLocked 统一预览与提交的门槛。调用方持有 mu；函数本身不改变状态。
+func (m *Manager) availableLocked(selection Selection, now time.Time) (candidate, *Rejection) {
+	version := selection.CredentialVersion
+	if version == "" {
+		version = "none"
+	}
+	c, ok := m.candidates[candidateKey{selection.TargetID, selection.ProviderID, selection.CredentialID, version}]
+	if !ok || m.active >= m.limits.MaxInflight {
+		return candidate{}, &Rejection{Status: 503, Code: "no_available_target"}
+	}
+	scopes := slices.Clone(selection.QuotaScopes)
+	slices.Sort(scopes)
+	scopes = slices.Compact(scopes)
+	if !slices.Equal(scopes, c.scopes) {
+		return candidate{}, &Rejection{Status: 503, Code: "no_available_target"}
+	}
+	target := m.targets[selection.TargetID]
+	if target.limit > 0 && target.used >= target.limit {
+		return candidate{}, &Rejection{Status: 503, Code: "no_available_target"}
+	}
+	for _, qid := range c.scopes {
+		q := m.quotas[qid]
+		if q.limit > 0 && q.used >= q.limit {
+			return candidate{}, &Rejection{Status: 503, Code: "no_available_target"}
+		}
+	}
+	for _, d := range c.domains {
+		for _, slot := range d.slots {
+			if slot.active && (slot.permanent || now.Before(slot.until) || slot.probe != nil) {
+				return candidate{}, &Rejection{Status: 503, Code: "no_available_target"}
+			}
+		}
+	}
+	if m.attempts == ^uint64(0) {
+		return candidate{}, &Rejection{Status: 503, Code: "gateway_capacity_exceeded"}
+	}
+	return c, nil
+}
+
 // Start 由传输提交回调调用。全部占用与恢复许可成功后才登记真实尝试。
 func (m *Manager) Start(ctx context.Context, selection Selection, attemptID string) (*AttemptLease, error) {
 	if ctx == nil {
@@ -308,54 +361,26 @@ func (m *Manager) Start(ctx context.Context, selection Selection, attemptID stri
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	version := selection.CredentialVersion
-	if version == "" {
-		version = "none"
-	}
-	c, ok := m.candidates[candidateKey{selection.TargetID, selection.ProviderID, selection.CredentialID, version}]
-	if !ok || attemptID == "" {
+	if attemptID == "" || m.activeIDs[attemptID] != nil {
 		return nil, &Rejection{Status: 503, Code: "no_available_target"}
 	}
-	if m.active >= m.limits.MaxInflight || m.activeIDs[attemptID] != nil {
-		return nil, &Rejection{Status: 503, Code: "no_available_target"}
-	}
-	scopes := slices.Clone(selection.QuotaScopes)
-	slices.Sort(scopes)
-	scopes = slices.Compact(scopes)
-	if !slices.Equal(scopes, c.scopes) {
-		return nil, &Rejection{Status: 503, Code: "no_available_target"}
-	}
-	target := m.targets[selection.TargetID]
-	if target.limit > 0 && target.used >= target.limit {
-		return nil, &Rejection{Status: 503, Code: "no_available_target"}
-	}
-	for _, qid := range c.scopes {
-		q := m.quotas[qid]
-		if q.limit > 0 && q.used >= q.limit {
-			return nil, &Rejection{Status: 503, Code: "no_available_target"}
-		}
+	c, err := m.availableLocked(selection, m.now())
+	if err != nil {
+		return nil, err
 	}
 	var recoveries []recovery
-	now := m.now()
 	for _, d := range c.domains {
 		for _, slot := range d.slots {
-			if !slot.active {
-				continue
+			if slot.active {
+				recoveries = append(recoveries, recovery{slot: slot, generation: slot.generation})
 			}
-			if slot.permanent || now.Before(slot.until) || slot.probe != nil {
-				return nil, &Rejection{Status: 503, Code: "no_available_target"}
-			}
-			recoveries = append(recoveries, recovery{slot: slot, generation: slot.generation})
 		}
-	}
-	if m.attempts == ^uint64(0) {
-		return nil, &Rejection{Status: 503, Code: "gateway_capacity_exceeded"}
 	}
 	l := &AttemptLease{manager: m, id: attemptID, candidate: c, recovery: recoveries, applied: make(map[*restriction]applied)}
 	for _, r := range recoveries {
 		r.slot.probe = l
 	}
-	target.used++
+	m.targets[selection.TargetID].used++
 	for _, qid := range c.scopes {
 		m.quotas[qid].used++
 	}
