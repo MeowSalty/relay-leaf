@@ -48,3 +48,9 @@ jobs:
       - name: 配置 fuzz 冒烟测试
         if: runner.os == 'Linux'
         run: go test ./internal/config -run=^$ -fuzz=^FuzzConfig$ -fuzztime=10s -parallel=2
+      - name: 请求扫描 fuzz 冒烟测试
+        if: runner.os == 'Linux'
+        run: go test ./internal/protocol -run=^$ -fuzz=^FuzzRequestScan$ -fuzztime=10s -parallel=2
+      - name: SSE 分帧 fuzz 冒烟测试
+        if: runner.os == 'Linux'
+        run: go test ./internal/protocol -run=^$ -fuzz=^FuzzSSE$ -fuzztime=10s -parallel=2
