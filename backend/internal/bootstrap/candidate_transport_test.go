@@ -90,6 +90,7 @@ func TestCompiledCandidateDrivesSingleAttemptFixtures(t *testing.T) {
 				}
 				t.Cleanup(func() { _ = transport.Close() })
 				var started atomic.Int32
+				copied := make(chan error, 1)
 				downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					// 此处根据已编译的上游模型名称构造合成请求。
 					body := fmt.Sprintf(`{"model":%q,"input":"fixture","stream":%t}`, target.UpstreamName, fixture.contentType == "text/event-stream")
@@ -106,9 +107,9 @@ func TestCompiledCandidateDrivesSingleAttemptFixtures(t *testing.T) {
 						http.Error(w, "夹具执行失败", http.StatusBadGateway)
 						return
 					}
-					if err := relay.CopyResponse(r.Context(), w, attempt.Response, credential.Execution.DownstreamWriteIdleTimeout); err != nil {
-						t.Errorf("复制夹具失败：%v", err)
-					}
+					copyErr := relay.CopyResponse(r.Context(), w, attempt.Response, credential.Execution.DownstreamWriteIdleTimeout)
+					<-attempt.Done()
+					copied <- copyErr
 				}))
 				t.Cleanup(downstream.Close)
 				clientTransport := &http.Transport{DisableCompression: true, Proxy: nil}
@@ -126,6 +127,15 @@ func TestCompiledCandidateDrivesSingleAttemptFixtures(t *testing.T) {
 					}
 					if resp.Header.Get("Content-Encoding") != fixture.encoding {
 						t.Fatal("响应编码被修改")
+					}
+					// 固定长度正文收齐时，服务端仍可能在确认 EOF；先等所属 I/O 收尾。
+					select {
+					case err := <-copied:
+						if err != nil {
+							t.Fatalf("复制夹具失败：%v", err)
+						}
+					case <-time.After(5 * time.Second):
+						t.Fatal("响应复制与上游尝试未及时收尾")
 					}
 				}
 				wantProtocol := int32(1)
