@@ -394,6 +394,14 @@ func FuzzRequestScan(f *testing.F) {
 		f.Add(sample(f, name))
 	}
 	f.Add([]byte(`{"model":"m","input":[]}`))
+	for _, raw := range []string{
+		`{"model":"m","input":[{"type":"code_interpreter_call","container_id":"cntr_1"},{"type":"computer_call_output","call_id":"c","output":{"type":"computer_screenshot","file_id":"file_1"}}],"tools":[{"type":"code_interpreter","container":{"type":"auto","file_ids":["file_2"]}},{"type":"file_search","vector_store_ids":["vs_1"]}]}`,
+		`{"model":"m","input":[{"type":"input_file","file_data":"data:application/pdf;base64,AAA"},{"type":"computer_call_output","output":{"type":"computer_screenshot","image_url":"https://example.invalid/x.png"}}]}`,
+		`{"model":"m","tools":[{"type":"code_interpreter","container":{"id":"cntr_1","type":"auto","file_ids":false}}]}`,
+		`{"model":"m","input":[{"type":"computer_call_output","output":{"type":"computer_screenshot","file_id":"file_1"},"output":{"type":"computer_screenshot","file_id":null}}]}`,
+	} {
+		f.Add([]byte(raw))
+	}
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		if len(raw) > 1<<20 {
 			t.Skip()

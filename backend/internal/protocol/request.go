@@ -87,6 +87,8 @@ func keys(list string) map[string]bool {
 
 var responseControls = keys("model input instructions stream stream_options background store previous_response_id conversation prompt tools tool_choice parallel_tool_calls reasoning text include temperature top_p max_output_tokens max_tool_calls truncation metadata user safety_identifier service_tier prompt_cache_key prompt_cache_retention prompt_cache_options context_management")
 var necessaryTop = keys("model input stream stream_options background previous_response_id conversation prompt tools tool_choice max_output_tokens prompt_cache_options context_management")
+var resourceSelectors = keys("file file_id file_ids files container container_id vector_store_id vector_store_ids")
+var serverToolTypes = keys("web_search web_search_preview web_search_preview_2025_03_11 file_search code_interpreter computer_use_preview image_generation mcp")
 
 // ScanRequest 校验必要元数据并保留模型字符串的原始字节区间。
 func ScanRequest(body []byte, maxStateBytes int) (RequestFacts, *GatewayError) {
@@ -297,6 +299,42 @@ func (s *requestScan) reference(v jsonView, typ string) bool {
 	s.resource(typ)
 	return true
 }
+
+// resourceID 用于不接受 null 或空字符串的显式资源选择字段，不复制引用正文。
+func (s *requestScan) resourceID(v jsonView, typ string) bool {
+	if v.kind() != '"' || v.span.End-v.span.Start == 2 {
+		s.err = requestError("invalid_request_metadata", "显式资源引用必须为非空字符串。")
+		return false
+	}
+	return s.reference(v, typ)
+}
+
+func (s *requestScan) resourceArray(v jsonView, typ, field string) {
+	if !v.array(func(ref jsonView) bool { s.resourceID(ref, typ); return s.err == nil }) && s.err == nil {
+		s.err = requestError("invalid_request_metadata", field+" 必须为非空引用组成的数组。")
+	}
+}
+
+// resourceObject 只检查协议对象的直接资源选择字段，不进入 schema 或用户数据。
+func (s *requestScan) resourceObject(v jsonView, allowed map[string]bool, visit func(string, jsonView)) {
+	necessary := make(map[string]bool, len(allowed)+len(resourceSelectors))
+	for k := range allowed {
+		necessary[k] = true
+	}
+	for k := range resourceSelectors {
+		necessary[k] = true
+	}
+	s.object(v, necessary, func(k string, val jsonView) {
+		if resourceSelectors[k] && !allowed[k] {
+			s.err = requestError("unsupported_request_mode", "无法解释当前协议对象的资源选择字段："+k+"。")
+			return
+		}
+		if visit != nil {
+			visit(k, val)
+		}
+	})
+}
+
 func (s *requestScan) input(v jsonView) {
 	if v.kind() == '"' || v.null() {
 		return
@@ -336,16 +374,22 @@ func (s *requestScan) inputItem(v jsonView) {
 	case "input_text", "output_text", "refusal":
 	case "input_image":
 		s.capability("image_input")
-		s.object(v, keys("type file_id image_url detail"), func(k string, val jsonView) {
-			if k == "file_id" {
-				s.reference(val, "openai.file")
+		s.resourceObject(v, keys("type file_id image_url detail"), func(k string, val jsonView) {
+			if k == "file_id" && !val.null() {
+				s.resourceID(val, "openai.file")
+			}
+			if k == "image_url" && !val.null() && val.kind() != '"' {
+				s.err = requestError("invalid_request_metadata", "image_url 必须为字符串或 null。")
 			}
 		})
 	case "input_file":
 		s.capability("file_input")
-		s.object(v, keys("type file_id file_data file_url filename"), func(k string, val jsonView) {
-			if k == "file_id" {
-				s.reference(val, "openai.file")
+		s.resourceObject(v, keys("type file_id file_data file_url filename"), func(k string, val jsonView) {
+			if k == "file_id" && !val.null() {
+				s.resourceID(val, "openai.file")
+			}
+			if (k == "file_data" || k == "file_url") && !val.null() && val.kind() != '"' {
+				s.err = requestError("invalid_request_metadata", k+" 必须为字符串或 null。")
 			}
 		})
 	case "input_audio":
@@ -366,7 +410,36 @@ func (s *requestScan) inputItem(v jsonView) {
 			if k == "output" && val.kind() == '[' {
 				val.array(func(part jsonView) bool { s.inputItem(part); return s.err == nil })
 			}
+			if k == "output" && val.kind() != '[' && val.kind() != '"' {
+				s.err = requestError("invalid_request_metadata", "客户端工具 output 必须为字符串或内容数组。")
+			}
 		})
+	case "code_interpreter_call":
+		s.serverHistory()
+		found := false
+		s.resourceObject(v, keys("type container_id"), func(k string, val jsonView) {
+			if k == "container_id" {
+				found = s.resourceID(val, "openai.container")
+			}
+		})
+		if !found && s.err == nil {
+			s.err = requestError("invalid_request_metadata", "code_interpreter_call 缺少非空 container_id。")
+		}
+	case "computer_call_output":
+		s.serverHistory()
+		found := false
+		s.resourceObject(v, keys("type output"), func(k string, val jsonView) {
+			if k == "output" {
+				found = true
+				s.computerScreenshot(val)
+			}
+		})
+		if !found && s.err == nil {
+			s.err = requestError("invalid_request_metadata", "computer_call_output 缺少 output 截图对象。")
+		}
+	case "web_search_call", "file_search_call", "computer_call", "image_generation_call", "mcp_call", "mcp_list_tools", "mcp_approval_request", "mcp_approval_response":
+		s.serverHistory()
+		s.resourceObject(v, keys("type"), nil)
 	case "reasoning", "compaction":
 		s.object(v, keys("type encrypted_content"), func(k string, val jsonView) {
 			if k == "encrypted_content" {
@@ -377,6 +450,46 @@ func (s *requestScan) inputItem(v jsonView) {
 		s.tighten(ReplayUnknown, "unknown_input_type")
 	}
 }
+
+func (s *requestScan) serverHistory() {
+	s.capability("server_tools")
+	s.tighten(ReplayForbidden, "server_tool_continuation")
+}
+
+func (s *requestScan) computerScreenshot(v jsonView) {
+	s.capability("image_input")
+	var held int
+	defer func() { s.used -= held }()
+	typ := ""
+	s.resourceObject(v, keys("type file_id image_url"), func(k string, val jsonView) {
+		switch k {
+		case "type":
+			typ = s.controlText(val, &held)
+		case "file_id":
+			s.resourceID(val, "openai.file")
+		case "image_url":
+			if val.kind() != '"' {
+				s.err = requestError("invalid_request_metadata", "截图 image_url 必须为字符串。")
+			}
+		}
+	})
+	if typ != "computer_screenshot" && s.err == nil {
+		s.err = requestError("unsupported_request_mode", "无法解释 computer_call_output 的截图类型。")
+	}
+}
+
+func (s *requestScan) imageMask(v jsonView) {
+	s.capability("image_input")
+	s.resourceObject(v, keys("file_id image_url"), func(k string, val jsonView) {
+		if k == "file_id" {
+			s.resourceID(val, "openai.file")
+		}
+		if k == "image_url" && val.kind() != '"' {
+			s.err = requestError("invalid_request_metadata", "图像蒙版 image_url 必须为字符串。")
+		}
+	})
+}
+
 func (s *requestScan) tools(v jsonView) {
 	if v.null() {
 		return
@@ -385,20 +498,31 @@ func (s *requestScan) tools(v jsonView) {
 		var held int
 		defer func() { s.used -= held }()
 		typ := ""
-		s.object(tool, keys("type container vector_store_ids files file_ids"), func(k string, val jsonView) {
+		s.object(tool, keys("type"), func(k string, val jsonView) {
 			if k == "type" {
 				typ = s.controlText(val, &held)
+			}
+		})
+		s.resourceObject(tool, keys("type container vector_store_ids file_ids input_image_mask"), func(k string, val jsonView) {
+			if k == "environment" && serverToolTypes[typ] {
+				s.err = requestError("unsupported_request_mode", "当前服务器工具不支持 environment 资源选择。")
+				return
 			}
 			if k == "container" {
 				s.container(val)
 			}
 			if k == "vector_store_ids" {
-				if !val.array(func(ref jsonView) bool { s.reference(ref, "openai.vector_store"); return s.err == nil }) && s.err == nil {
-					s.err = requestError("invalid_request_metadata", "vector_store_ids 必须为引用数组。")
-				}
+				s.resourceArray(val, "openai.vector_store", "vector_store_ids")
 			}
 			if k == "file_ids" {
-				val.array(func(ref jsonView) bool { s.reference(ref, "openai.file"); return s.err == nil })
+				s.resourceArray(val, "openai.file", "file_ids")
+			}
+			if k == "input_image_mask" {
+				if typ != "image_generation" {
+					s.err = requestError("unsupported_request_mode", "当前工具不支持图像蒙版资源选择。")
+					return
+				}
+				s.imageMask(val)
 			}
 		})
 		if s.err != nil {
@@ -426,7 +550,7 @@ func (s *requestScan) tools(v jsonView) {
 func (s *requestScan) container(v jsonView) {
 	s.tighten(ReplayForbidden, "mutable_execution_environment")
 	if v.kind() == '"' {
-		s.reference(v, "openai.container")
+		s.resourceID(v, "openai.container")
 		return
 	}
 	if v.kind() != '{' {
@@ -436,24 +560,22 @@ func (s *requestScan) container(v jsonView) {
 	var held int
 	defer func() { s.used -= held }()
 	typ := ""
-	found := false
-	s.object(v, keys("type id file_ids memory_limit"), func(k string, val jsonView) {
-		switch k {
-		case "id":
-			found = s.reference(val, "openai.container")
-		case "file_ids":
-			if !val.array(func(ref jsonView) bool { s.reference(ref, "openai.file"); return s.err == nil }) && s.err == nil {
-				s.err = requestError("invalid_request_metadata", "container.file_ids 必须为引用数组。")
-			}
-		case "type":
+	s.object(v, keys("type"), func(k string, val jsonView) {
+		if k == "type" {
 			typ = s.controlText(val, &held)
-		case "memory_limit":
+		}
+	})
+	s.object(v, keys("type file_ids memory_limit"), func(k string, val jsonView) {
+		switch k {
+		case "file_ids":
+			s.resourceArray(val, "openai.file", "container.file_ids")
+		case "type", "memory_limit":
 		default:
 			s.err = requestError("unsupported_request_mode", "无法解释 container 选择对象。")
 		}
 	})
-	if typ != "auto" && !found && s.err == nil {
-		s.err = requestError("unsupported_request_mode", "container 未提供明确的创建方式或引用。")
+	if typ != "auto" && s.err == nil {
+		s.err = requestError("unsupported_request_mode", "container 选择对象必须使用 type=auto。")
 	}
 }
 func (s *requestScan) toolChoice(v jsonView) {
