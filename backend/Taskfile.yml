@@ -43,4 +43,5 @@ tasks:
       - task: test
       - go vet ./...
       - go run ./cmd/relayleaf config check --config ../examples/relayleaf.file.yaml
+      - go run ./cmd/relayleaf config check --config ../examples/relayleaf.routing.yaml
       - task: build
