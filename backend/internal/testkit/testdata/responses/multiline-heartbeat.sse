@@ -1,0 +1,12 @@
+: heartbeat before first event
+
+event: response.created
+data: {"type":"response.created",
+data: "response":{"id":"resp_synthetic_multiline","object":"response","status":"in_progress","output":[]}}
+
+: heartbeat between events
+
+event: response.completed
+data: {"type":"response.completed",
+data: "response":{"id":"resp_synthetic_multiline","object":"response","status":"completed","output":[]}}
+

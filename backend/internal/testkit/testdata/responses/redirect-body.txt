@@ -1,0 +1,1 @@
+Synthetic 3xx body. Location is fixture metadata; no redirect should be followed.

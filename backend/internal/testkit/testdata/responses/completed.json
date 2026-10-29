@@ -1,0 +1,1 @@
+{"id":"resp_synthetic_completed","object":"response","model":"upstream-model","status":"completed","output":[{"type":"message","id":"msg_synthetic","role":"assistant","status":"completed","content":[{"type":"output_text","text":"你好 🌿","annotations":[]}]}],"usage":{"input_tokens":11,"output_tokens":4,"total_tokens":15},"unknown_vendor":{"large":9007199254740993}}

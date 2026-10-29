@@ -1,0 +1,11 @@
+: synthetic heartbeat
+
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_synthetic_stream","object":"response","status":"in_progress","output":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_synthetic","output_index":0,"content_index":0,"delta":"你好 🌿"}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_synthetic_stream","object":"response","status":"completed","output":[{"type":"message","id":"msg_synthetic","role":"assistant","status":"completed","content":[{"type":"output_text","text":"你好 🌿","annotations":[]}]}],"usage":{"input_tokens":11,"output_tokens":4,"total_tokens":15}}}
+

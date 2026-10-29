@@ -1,0 +1,9 @@
+{
+  "model" : "public-模型",
+  "input": [{"role":"user","content":[{"type":"input_text","text":"你好 🌿 é \\ literal \u4e2d"}]}],
+  "tools": [{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"number":{"type":"integer","default":9007199254740993},"model":{"const":"do-not-rewrite"}},"additionalProperties":false}}],
+  "tool_choice":"auto",
+  "stream":false,
+  "metadata":{"literal":"\"model\":\"nested\"","big":18446744073709551615},
+  "unknown_vendor_field":{"nested":[-9007199254740993,1.2300e+12],"text":"原样"}
+}

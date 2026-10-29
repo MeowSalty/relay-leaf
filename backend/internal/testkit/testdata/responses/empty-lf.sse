@@ -1,0 +1,8 @@
+: heartbeat
+
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_synthetic_empty","object":"response","status":"in_progress","output":[]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_synthetic_empty","object":"response","status":"completed","output":[],"usage":{"input_tokens":11,"output_tokens":0,"total_tokens":11}}}
+

@@ -1,0 +1,6 @@
+event: response.refusal.delta
+data: {"type":"response.refusal.delta","item_id":"msg_synthetic","output_index":0,"content_index":0,"delta":"Cannot provide that content."}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_synthetic_refusal","object":"response","status":"completed","output":[{"type":"message","id":"msg_synthetic","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"Cannot provide that content."}]}]}}
+

@@ -1,0 +1,12 @@
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_synthetic","call_id":"call_synthetic","name":"lookup","arguments":"","status":"in_progress"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_synthetic","output_index":0,"delta":"{\"city\":\"上海"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_synthetic","output_index":0,"delta":" 🌿\"}"}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_synthetic_tools","object":"response","status":"completed","output":[{"type":"function_call","id":"fc_synthetic","call_id":"call_synthetic","name":"lookup","arguments":"{\"city\":\"上海 🌿\"}","status":"completed"}]}}
+

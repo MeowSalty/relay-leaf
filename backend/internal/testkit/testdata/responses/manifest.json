@@ -1,0 +1,458 @@
+{
+  "provenance": "合成样本，不含真实上游数据或用户秘密；不能作为上游协议一致性验收依据",
+  "samples": [
+    {
+      "name": "completed-crlf.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 726,
+      "sha256": "2e62cace3b71b33829459c08c807b0c2150a179f1235da5f6968496a5fe8f772",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "completed-lf.sse 的精确 CRLF 版本；事件分帧必须保留协议字节。"
+      ]
+    },
+    {
+      "name": "completed-lf.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 715,
+      "sha256": "d20212e6816f5416cc3617ccc8df8931a1648ad0aa007843c5788f550e7727b9",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "使用 LF 分帧，包含心跳、文本增量和终态 response.completed，嵌套状态与之匹配。",
+        "文本输出非空；usage=11/4/15；reader 提供正常 EOF。"
+      ]
+    },
+    {
+      "name": "completed-lf.sse.gz",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream",
+        "Content-Encoding": "gzip"
+      },
+      "bytes": 307,
+      "sha256": "92a7b7ca314061a47919f8004e1284b68695f62b0156285964f9e3537bff0bea",
+      "gzip_source": "completed-lf.sse",
+      "transport_end": "eof",
+      "facts": [
+        "completed-lf.sse 的确定性 gzip；使用 Go 默认 gzip 头部，mtime=0，OS=255；解码字节与源文件完全相同。"
+      ]
+    },
+    {
+      "name": "completed.json",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "bytes": 372,
+      "sha256": "3b358bd4fccecfac2c32d192e5b3151111bdbc063b161f56adbffe045be84807",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "完整的正常终态 completed，包含非空文本输出；usage=11/4/15。",
+        "上游模型及资源 ID 保持不变。"
+      ]
+    },
+    {
+      "name": "completed.json.gz",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json",
+        "Content-Encoding": "gzip"
+      },
+      "bytes": 256,
+      "sha256": "439f6c279fc0ca752c57bf297f93329a81d73c4f35cf43832212f7bb1b37dc4f",
+      "gzip_source": "completed.json",
+      "transport_end": "eof",
+      "facts": [
+        "completed.json 的确定性 gzip；使用 Go 默认 gzip 头部，mtime=0，OS=255；解码字节与源文件完全相同。"
+      ]
+    },
+    {
+      "name": "empty-lf.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 389,
+      "sha256": "8ae11fe42c559c8ebf5660228c4b9abb2d79b1d82504c1b99b8e25b5f417428e",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "心跳及 created 事件不属于输出；只有覆盖完整时，状态匹配且 output=[] 的 completed 终态才能证明输出为空。"
+      ]
+    },
+    {
+      "name": "empty.json",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "bytes": 172,
+      "sha256": "48d2118289498588e277974fcef90d98be4aa12337184c7c2a98866ee6e74089",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "完整的 completed 响应，output=[]；仅在正文完整且覆盖完整后才能判定 empty_output。"
+      ]
+    },
+    {
+      "name": "http-error.json",
+      "kind": "response",
+      "status": 429,
+      "headers": {
+        "Content-Type": "application/json",
+        "Retry-After": "7"
+      },
+      "bytes": 113,
+      "sha256": "39f0ff9ae6f17faaa3f74da4a90c4435f29c824d60163249cab3960e7fc50668",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "合成的结构化 HTTP 429 错误，Retry-After=7；不能据此证明整个提供方的配额范围。"
+      ]
+    },
+    {
+      "name": "incomplete.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 217,
+      "sha256": "9d26e3d2fe454f2adc88d227d2858bd6a6edfd0dbe9ea0ef13b62ccc18f08c82",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "response.incomplete 与 status=incomplete 匹配，提供受 max_output_tokens 限制的终态证据；不属于正常的空生成。"
+      ]
+    },
+    {
+      "name": "missing-terminal.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 157,
+      "sha256": "9c9709fc665a8f65e71774217bf059917f2d4c9cf2f94e91ccfa94353fa94ece",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "created 事件之后的正常 EOF 不含完成终态；结果未知，不能判为空。"
+      ]
+    },
+    {
+      "name": "multiline-heartbeat.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 394,
+      "sha256": "bc6262066012da9da5e406645a6919bd50e3570931fecbc036d58fdb1594bcbe",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "语义观察时以 LF 拼接多个 data 字段；未经改动的协议字节仍保留各自的 data 行。",
+        "心跳注释不算内容，也不算首个数据事件。"
+      ]
+    },
+    {
+      "name": "protocol-error.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 237,
+      "sha256": "25e6608a24b0ba8749e5e3c2c95f258adedb574512642845806fe4d372568e8a",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "HTTP 200 中包含 response.failed 和错误；协议失败独立于 HTTP 状态。"
+      ]
+    },
+    {
+      "name": "redirect-body.txt",
+      "kind": "response",
+      "status": 307,
+      "headers": {
+        "Content-Type": "text/plain",
+        "Location": "/synthetic-redirect-target"
+      },
+      "bytes": 82,
+      "sha256": "1c0945068905ee52aa03ffee9fea343595fa759d70dbe7d5822e0d5b4e4b7679",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "合成的 HTTP 307，Location=/synthetic-redirect-target；保留正文，且不得跟随重定向。"
+      ]
+    },
+    {
+      "name": "refusal-lf.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 481,
+      "sha256": "293271d33f2e680d3548e91a8a55b8897fd781782c7729a60d4992acc468e0fe",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "显式拒绝增量及完成的拒绝结果不属于空输出。"
+      ]
+    },
+    {
+      "name": "refusal.json",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "bytes": 325,
+      "sha256": "0eeae3cbb367d3b2fd6249f57497b7210097497636bace292ff43e24df167d16",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "显式非空拒绝是合法结果，不属于空文本失败。"
+      ]
+    },
+    {
+      "name": "request-rich.json",
+      "kind": "request",
+      "status": 0,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "bytes": 556,
+      "sha256": "8d3a74e5cd92393f95495c2ad4446432e3543043624f321855a123b89b6bd69a",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "可以替换原始请求中本地模型对应的字节范围；其他字节必须全部保留。",
+        "Unicode、组合字符、转义 Unicode、大于 2^53 的数字、schema 和未知根字段均有意保留。",
+        "未知执行控制字段使得不能直接假定请求允许重放。"
+      ]
+    },
+    {
+      "name": "request-rich.json.gz",
+      "kind": "request",
+      "status": 0,
+      "headers": {
+        "Content-Type": "application/json",
+        "Content-Encoding": "gzip"
+      },
+      "bytes": 395,
+      "sha256": "9112f38293eca3d14ab0c01ead9d4703220dcb6e73d38aef32280484be053602",
+      "gzip_source": "request-rich.json",
+      "transport_end": "eof",
+      "facts": [
+        "request-rich.json 的确定性 gzip；使用 Go 默认 gzip 头部，mtime=0，OS=255；解码字节与源文件完全相同。"
+      ]
+    },
+    {
+      "name": "request-tool-arguments.json",
+      "kind": "request",
+      "status": 0,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "bytes": 293,
+      "sha256": "38a7288952153bba5d13e857d9e533b06f31f8eb6e6b47d434aab665c6483da8",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "字符串形式的工具参数是不透明的原始字节，其中包含大整数、类似模型字段的内容及 Unicode。",
+        "客户端的函数调用及输出请求使用 stream=true。"
+      ]
+    },
+    {
+      "name": "status-conflict.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 162,
+      "sha256": "d76b10b69b7b36a9f13342ec10e365784d7cc8d387ee512ed874a3c9f412421c",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "response.completed 与 status=in_progress 不一致；终态证据无效，不能假定已完成或有输出。"
+      ]
+    },
+    {
+      "name": "terminal-tail-error.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 203,
+      "sha256": "f17e2edda7d574c3154b23b3ad685dd4dbec9e35e8311c9ba6a50a485a422f31",
+      "gzip_source": "",
+      "transport_end": "injected_read_error",
+      "facts": [
+        "原始字节在终态及尾部注释后结束。",
+        "使用方必须通过 ScriptedReader 在这些字节之后注入非 EOF 错误；提前完成不能抹去传输失败。"
+      ]
+    },
+    {
+      "name": "terminal-tail.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 300,
+      "sha256": "a28164ee169e62bf46a83729fe283255bb6d8f92490c1d4ed531d286fa9826ae",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "复制并观察 response.completed 后的字节；终态事件不代表 HTTP I/O 结束。",
+        "尾部未知事件可能降低覆盖度，不能丢弃。"
+      ]
+    },
+    {
+      "name": "tools-lf.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 873,
+      "sha256": "f4fd9e4ba7ab4056914e235c85c36c08ff04c652105831a44de0c3b17248a704",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "两个非空工具参数增量各自都属于输出，尽管它们单独都不是完整 JSON。",
+        "包含索引与条目的关联，以及最终函数调用。"
+      ]
+    },
+    {
+      "name": "tools.json",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "bytes": 470,
+      "sha256": "544ea3dc3de4362bdbd5bab79046ca6547e45b98206d47a26944564468af49eb",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "完整函数调用属于输出；不要解析或重建不透明参数。",
+        "完整的无输入 ping 函数调用也属于有效输出。"
+      ]
+    },
+    {
+      "name": "truncated-gzip.bin",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/octet-stream",
+        "Content-Encoding": "gzip"
+      },
+      "bytes": 251,
+      "sha256": "6cfea167e6600bde3ec11faccef6654476f687b67359259e3bf492cb07f0fa32",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "删除了五个 gzip 尾部字节；解码器必须报告截断，不能据此判定完整或为空。"
+      ]
+    },
+    {
+      "name": "truncated.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 335,
+      "sha256": "7158cec033451077f0d3b0c6b8d54d4ddcc8fb1bd95d0b9b5aa4845249bc6b7d",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "在文本增量中的 UTF-8 emoji 内部结束，缺少帧分隔符及终态。",
+        "不得修复不完整的 UTF-8 和 JSON 分帧，也不得将其归为空输出。"
+      ]
+    },
+    {
+      "name": "unknown-encoding.bin",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/octet-stream",
+        "Content-Encoding": "vendor-test-encoding"
+      },
+      "bytes": 68,
+      "sha256": "7869874f014e260cadacef5ecc1441c98e1977fe28bf1c9fb9177ce0e9a3856c",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "Content-Encoding=vendor-test-encoding；精确复制不透明正文，语义观察结果未知。"
+      ]
+    },
+    {
+      "name": "unknown-event.sse",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/event-stream"
+      },
+      "bytes": 271,
+      "sha256": "531ddd9f7432301118d1f924c51af201cf55df76281895fde20ff19256292457",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "未知事件可能携带输出；后续 completed 的 output=[] 不能证明输出为空。"
+      ]
+    },
+    {
+      "name": "unknown-output.json",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "bytes": 139,
+      "sha256": "86eba9fe0b894e7913597ad614bc169dda5f899a3431068e71e041e37a981a34",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "未知输出类型降低输出覆盖度；无法推断为空。"
+      ]
+    },
+    {
+      "name": "zero-body.bin",
+      "kind": "response",
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/octet-stream"
+      },
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_source": "",
+      "transport_end": "eof",
+      "facts": [
+        "成功且完整的零字节传输正文可证明 empty_transport_body；结果仍可能未知。"
+      ]
+    }
+  ]
+}

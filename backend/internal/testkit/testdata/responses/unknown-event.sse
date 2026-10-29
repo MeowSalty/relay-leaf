@@ -1,0 +1,6 @@
+event: vendor.future_output
+data: {"type":"vendor.future_output","payload":{"opaque":"possible output"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_synthetic_unknown_event","object":"response","status":"completed","output":[]}}
+

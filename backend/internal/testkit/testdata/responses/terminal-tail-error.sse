@@ -1,0 +1,5 @@
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_synthetic_tail_error","object":"response","status":"completed","output":[]}}
+
+: bytes before injected transport error
+

@@ -1,0 +1,1 @@
+{"model":"public-模型","input":[{"type":"function_call","call_id":"call_synthetic","name":"lookup","arguments":"{\"model\":\"opaque\",\"integer\":9007199254740993,\"city\":\"上海 🌿\"}"},{"type":"function_call_output","call_id":"call_synthetic","output":"{\"ok\":true}"}],"stream":true}

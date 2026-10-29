@@ -1,0 +1,1 @@
+{"id":"resp_synthetic_refusal","object":"response","model":"upstream-model","status":"completed","output":[{"type":"message","id":"msg_synthetic","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"Cannot provide that content."}]}],"usage":{"input_tokens":11,"output_tokens":5,"total_tokens":16}}

@@ -1,0 +1,3 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_synthetic_missing","object":"response","status":"in_progress","output":[]}}
+
