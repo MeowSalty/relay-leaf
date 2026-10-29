@@ -4,7 +4,7 @@
 
 已提供配置模板生成、离线检查、秘密解析和本地启动。数据端口统一返回 HTTP 503，尚未提供请求转发。传输与原字节样本的测试范围见 [测试样本说明](backend/internal/testkit/README.md)。
 
-构建与验证固定 Go 1.26.10；后端是独立 Go 模块，运行不需要数据库、前端工具或 CGO。
+构建与验证使用 Go 1.26 系列，建议使用该系列的最新补丁版本；后端是独立 Go 模块，运行不需要数据库、前端工具或 CGO。
 
 Task 按项目分层，需要安装 [Task 3](https://taskfile.dev/docs/installation)。根目录的 [Taskfile.yml](Taskfile.yml) 汇总项目入口与跨项目检查，后端命令由 [backend/Taskfile.yml](backend/Taskfile.yml) 维护。在仓库根目录执行：
 
@@ -68,6 +68,6 @@ go vet ./...
 go test -race ./...
 ```
 
-race 检查需要受支持的 C 编译器，仅属于开发验证依赖。[CI 工作流](.github/workflows/backend.yml) 固定 Go 1.26.10，配置了 Linux 和 Windows 的后端检查，以及 Linux 的 race 与短时 fuzz。原字节夹具通过 `.gitattributes` 禁止换行转换。
+race 检查需要受支持的 C 编译器，仅属于开发验证依赖。[CI 工作流](.github/workflows/backend.yml) 从 `backend/go.mod` 读取两段式 Go 版本声明，并通过 `check-latest` 获取该系列的最新补丁版本，配置了 Linux 和 Windows 的后端检查，以及 Linux 的 race 与短时 fuzz。原字节夹具通过 `.gitattributes` 禁止换行转换。
 
 后端源码位于 [backend/](backend/)，可运行配置样例位于 [examples/](examples/)。
