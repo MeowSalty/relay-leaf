@@ -1,0 +1,160 @@
+# 支持 POST /v1/responses 的普通与 SSE 调用，按客户端授权选择上游凭据。
+# 示例 origin、项目和模型均为虚构值，使用前替换为真实服务及身份。
+# general 客户端可使用两个提供方；coding 客户端只可使用 primary 的编程凭据。
+# 固定资源路由仅授权 general 客户端，资源类型须按真实上游访问能力配置。
+# private 作用域只声明单个凭据的资源边界，不声明未经核验的跨凭据资源共享。
+version: 1
+mode: local
+source: file
+listeners:
+  gateway: 127.0.0.1:17890
+ui:
+  enabled: false
+access_groups:
+  general:
+    name: 普通上游
+  coding:
+    name: 编程上游
+  internal:
+    name: 内部上游
+client_auth:
+  mode: api_key
+  allow_gemini_query_key: false
+  keys:
+    general-client:
+      enabled: true
+      secret_ref: env:RELAYLEAF_GENERAL_CLIENT_KEY
+      secret_version: v1
+      allowed_routes: [shared-responses, general-resources]
+      allowed_access_groups: [general]
+      denied_access_groups: [internal]
+      limits: {max_inflight: 4}
+    coding-client:
+      enabled: true
+      secret_ref: env:RELAYLEAF_CODING_CLIENT_KEY
+      secret_version: v1
+      allowed_routes: [shared-responses]
+      allowed_access_groups: [coding]
+      denied_access_groups: [internal]
+      limits: {max_inflight: 4}
+providers:
+  primary:
+    enabled: true
+    origin: https://primary.example.com
+    credentials:
+      general-key:
+        enabled: true
+        access_groups: [general]
+        secret_ref: env:RELAYLEAF_PRIMARY_GENERAL_KEY
+        secret_version: v1
+        identity:
+          attributes: {project: example-general-project}
+          selectors: {openai_project: example-general-project}
+        resource_scope: general-private
+      coding-key:
+        enabled: true
+        access_groups: [coding]
+        secret_ref: env:RELAYLEAF_PRIMARY_CODING_KEY
+        secret_version: v1
+        identity:
+          attributes: {project: example-coding-project}
+          selectors: {openai_project: example-coding-project}
+        resource_scope: coding-private
+    resource_scopes:
+      general-private:
+        owner: {project: example-general-project}
+        resource_types: [openai.response, openai.conversation, openai.item, openai.prompt, openai.file, openai.vector_store, openai.container, openai.opaque]
+        sharing: private
+      coding-private:
+        owner: {project: example-coding-project}
+        resource_types: [openai.response, openai.conversation, openai.item, openai.prompt, openai.file, openai.vector_store, openai.container, openai.opaque]
+        sharing: private
+    endpoints:
+      responses:
+        protocol: openai.responses
+        operation: create
+        path_template: /v1/responses
+        request_modes: [non_stream, stream]
+        auth: {type: bearer}
+    models:
+      assistant:
+        upstream_name: example-primary-model
+        bindings:
+          responses:
+            enabled: true
+            credentials: [general-key, coding-key]
+            request_modes: [non_stream, stream]
+            capabilities: [image_input, tool_calling, file_input, server_tools]
+            limits: {max_inflight: 8}
+  backup:
+    enabled: true
+    origin: https://backup.example.com
+    credentials:
+      general-key:
+        enabled: true
+        access_groups: [general]
+        secret_ref: env:RELAYLEAF_BACKUP_GENERAL_KEY
+        secret_version: v1
+        identity:
+          attributes: {project: example-backup-project}
+          selectors: {openai_project: example-backup-project}
+    endpoints:
+      responses:
+        protocol: openai.responses
+        operation: create
+        path_template: /v1/responses
+        request_modes: [non_stream, stream]
+        auth: {type: bearer}
+    models:
+      assistant:
+        upstream_name: example-backup-model
+        bindings:
+          responses:
+            enabled: true
+            credentials: [general-key]
+            request_modes: [non_stream, stream]
+            capabilities: [image_input, tool_calling, file_input, server_tools]
+            limits: {max_inflight: 4}
+routes:
+  shared-responses:
+    protocol: openai.responses
+    operation: create
+    public_model: example-assistant
+    selection: {strategy: weighted}
+    session_affinity: {enabled: false}
+    resource_policy: {mode: stateless_pool}
+    targets:
+      - target: primary/assistant/responses
+        priority: 10
+        weight: 3
+      - target: backup/assistant/responses
+        priority: 10
+        weight: 1
+  general-resources:
+    protocol: openai.responses
+    operation: create
+    public_model: example-general-resources
+    selection: {strategy: weighted}
+    session_affinity: {enabled: false}
+    resource_policy: {mode: fixed_scope, scope: primary/general-private}
+    targets:
+      - target: primary/assistant/responses
+        priority: 10
+        weight: 1
+execution_defaults:
+  max_retries: 0
+  empty_response: {enabled: true}
+health_defaults:
+  circuit_breaker: {enabled: false}
+limits:
+  max_inflight: 32
+  max_request_body_bytes: 16777216
+  max_decompressed_body_bytes: 16777216
+  max_total_body_buffer_bytes: 67108864
+  max_total_response_buffer_bytes: 16777216
+  queue_capacity: 0
+  queue_wait_timeout: 2s
+  max_runtime_state_entries: 10000
+  max_session_bindings: 10000
+  max_session_bindings_per_client: 1000
+  max_session_id_bytes: 128
