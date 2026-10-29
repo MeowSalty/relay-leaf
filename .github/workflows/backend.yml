@@ -1,0 +1,49 @@
+name: 后端
+
+on:
+  push:
+    paths: ["backend/**", ".github/workflows/backend.yml", ".gitattributes", "examples/**"]
+  pull_request:
+    paths: ["backend/**", ".github/workflows/backend.yml", ".gitattributes", "examples/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.10"
+          cache-dependency-path: backend/go.sum
+      - name: Go 源码格式检查
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
+      - run: go mod verify
+      - run: go test -count=1 ./...
+      - run: go vet ./...
+      - run: go run ./cmd/relayleaf config check --config ../examples/relayleaf.file.yaml
+      - run: go build ./...
+        env:
+          CGO_ENABLED: "0"
+      - name: race 检查（Linux）
+        if: runner.os == 'Linux'
+        run: go test -race -count=1 ./...
+      - name: 配置 fuzz 冒烟测试
+        if: runner.os == 'Linux'
+        run: go test ./internal/config -run=^$ -fuzz=^FuzzConfig$ -fuzztime=10s -parallel=2
