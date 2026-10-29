@@ -85,6 +85,10 @@ func NewTransport(opts Options) (*Transport, error) {
 		if !ok {
 			return nil, errors.New("relay: 拨号不属于任何请求尝试")
 		}
+		if timing, ok := ctx.Value(attemptTimersKey{}).(*attemptTimers); ok {
+			timing.arm("connect_timeout", timing.exec.ConnectTimeout)
+			defer timing.stop("connect_timeout")
+		}
 		raw, err := dial(ctx, network, address)
 		if err != nil {
 			return nil, err
