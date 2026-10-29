@@ -3,13 +3,19 @@
 # general 客户端可使用两个提供方；coding 客户端只可使用 primary 的编程凭据。
 # 固定资源路由仅授权 general 客户端，资源类型须按真实上游访问能力配置。
 # private 作用域只声明单个凭据的资源边界，不声明未经核验的跨凭据资源共享。
+# 字段的完整取值约束见项目 README；此处注释只作概览。
+# 下方三项为配置格式版本与来源，当前使用本地文件模式。
 version: 1
 mode: local
 source: file
+# 数据监听地址；端口被占用时启动失败，不会自动更换端口。
 listeners:
   gateway: 127.0.0.1:17890
+# 管理界面尚未开放，必须保持关闭。
 ui:
   enabled: false
+# 上游访问组：把凭据按用途分组，客户端与凭据通过名称互相引用；
+# 凭据须命中客户端的某个允许组且不命中任何拒绝组，拒绝优先。
 access_groups:
   general:
     name: 普通上游
@@ -17,16 +23,22 @@ access_groups:
     name: 编程上游
   internal:
     name: 内部上游
+# 客户端鉴权；keys 下每项是一个 Bearer 密钥，键名为调用方标识。
 client_auth:
   mode: api_key
+  # 经 URL 查询参数传递密钥的方式尚未开放。
   allow_gemini_query_key: false
   keys:
     general-client:
       enabled: true
+      # 密钥材料来源，支持环境变量或文件引用；也可改为 secret 直接填写。
       secret_ref: env:RELAYLEAF_GENERAL_CLIENT_KEY
       secret_version: v1
+      # 允许访问的公开路由；空列表表示拒绝全部路由。
       allowed_routes: [shared-responses, general-resources]
+      # 允许使用的上游访问组；空列表表示拒绝全部上游。
       allowed_access_groups: [general]
+      # 拒绝的上游访问组，优先于允许组。
       denied_access_groups: [internal]
       limits: {max_inflight: 4}
     coding-client:
@@ -37,19 +49,24 @@ client_auth:
       allowed_access_groups: [coding]
       denied_access_groups: [internal]
       limits: {max_inflight: 4}
+# 上游提供方：每个提供方声明服务地址、凭据、端点与模型。
 providers:
   primary:
     enabled: true
+    # 上游基地址，仅含协议与主机；请求路径由端点声明。
     origin: https://primary.example.com
     credentials:
       general-key:
         enabled: true
+        # 该凭据归属的访问组，必填且非空。
         access_groups: [general]
         secret_ref: env:RELAYLEAF_PRIMARY_GENERAL_KEY
         secret_version: v1
+        # 出站身份；attributes 供资源归属匹配，selectors 注入上游身份请求头。
         identity:
           attributes: {project: example-general-project}
           selectors: {openai_project: example-general-project}
+        # 该凭据的资源作用域，须与下方同名作用域声明配套。
         resource_scope: general-private
       coding-key:
         enabled: true
@@ -60,6 +77,8 @@ providers:
           attributes: {project: example-coding-project}
           selectors: {openai_project: example-coding-project}
         resource_scope: coding-private
+    # 资源作用域声明：owner 描述资源归属，须与凭据身份一致；
+    # resource_types 列出覆盖的资源类型；sharing 为 private 表示仅含单个凭据。
     resource_scopes:
       general-private:
         owner: {project: example-general-project}
@@ -71,19 +90,26 @@ providers:
         sharing: private
     endpoints:
       responses:
+        # 上游协议与操作；当前支持 openai.responses 的 create。
         protocol: openai.responses
         operation: create
+        # 上游请求路径。
         path_template: /v1/responses
+        # 支持的调用方式；non_stream 为普通请求，stream 为 SSE 流式。
         request_modes: [non_stream, stream]
+        # 上游认证方式；bearer 表示注入 Bearer 密钥。
         auth: {type: bearer}
     models:
       assistant:
+        # 上游真实模型名；转发时把公开模型名替换为该名称。
         upstream_name: example-primary-model
         bindings:
           responses:
             enabled: true
+            # 可服务该模型的凭据；多个凭据轮流使用。
             credentials: [general-key, coding-key]
             request_modes: [non_stream, stream]
+            # 声明该绑定支持的能力；请求所需能力未在此声明时被拒绝。
             capabilities: [image_input, tool_calling, file_input, server_tools]
             limits: {max_inflight: 8}
   backup:
@@ -115,15 +141,22 @@ providers:
             request_modes: [non_stream, stream]
             capabilities: [image_input, tool_calling, file_input, server_tools]
             limits: {max_inflight: 4}
+# 公开路由：客户端请求的模型名在此精确匹配。
 routes:
   shared-responses:
     protocol: openai.responses
     operation: create
+    # 客户端可见的模型名，两个提供方各自绑定到自己的上游模型。
     public_model: example-assistant
+    # 目标选择策略；weighted 表示同级目标按权重随机分流。
     selection: {strategy: weighted}
+    # 会话亲和尚未开放，保持关闭。
     session_affinity: {enabled: false}
+    # 资源归属策略；stateless_pool 服务无状态请求，硬资源引用需使用 fixed_scope。
     resource_policy: {mode: stateless_pool}
     targets:
+      # 两个目标同级，按权重 3:1 分流；编程客户端只获准 primary 的凭据，实际只会命中第一个目标。
+      # priority 数值越小越优先，只有当前可用最高优先级参与选择；weight 决定同级分流比例。
       - target: primary/assistant/responses
         priority: 10
         weight: 3
@@ -133,27 +166,38 @@ routes:
   general-resources:
     protocol: openai.responses
     operation: create
+    # 独立的公开模型名，仅 general 客户端获准。
     public_model: example-general-resources
     selection: {strategy: weighted}
     session_affinity: {enabled: false}
+    # 固定资源作用域：已识别的硬资源引用限定到该作用域成员，并由其覆盖本次全部资源类型。
     resource_policy: {mode: fixed_scope, scope: primary/general-private}
     targets:
       - target: primary/assistant/responses
         priority: 10
         weight: 1
+# 请求执行默认值。
 execution_defaults:
+  # 自动重试尚未开放；0 表示每个请求最多一次真实上游调用。
   max_retries: 0
+  # 空回检测；确认响应没有有效输出且尚未提交时返回 502。
   empty_response: {enabled: true}
 health_defaults:
+  # 自动熔断尚未开放，保持关闭；上游冷却与已确认限额仍独立生效。
   circuit_breaker: {enabled: false}
+# 实例级资源上限。
 limits:
+  # 全实例最大并发请求数。
   max_inflight: 32
+  # 请求体与响应缓冲的尺寸上限，单位为字节。
   max_request_body_bytes: 16777216
   max_decompressed_body_bytes: 16777216
   max_total_body_buffer_bytes: 67108864
   max_total_response_buffer_bytes: 16777216
+  # 首次排队尚未开放，保持为 0。
   queue_capacity: 0
   queue_wait_timeout: 2s
+  # 运行状态、会话绑定等内存记录的容量上限。
   max_runtime_state_entries: 10000
   max_session_bindings: 10000
   max_session_bindings_per_client: 1000
